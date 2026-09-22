@@ -48,6 +48,7 @@ h1,h2,p{margin:0}
 .camera-tools{position:absolute;z-index:10;top:10px;left:10px;display:flex;align-items:flex-start;gap:8px;padding:6px;border:1px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(12,15,20,.82);backdrop-filter:blur(10px)}
 .color-chip{color:#b9e7ff}
 .label-chip{color:#ffe59a}
+.auto-chip{color:#a8f1c6}
 .camera-options{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
 .figure-picker{position:relative}
 .add-figure-btn,.shape-choice{width:40px;height:40px;padding:0;border:1px solid #596778;border-radius:11px;background:linear-gradient(180deg,#2e3743,#1b222b);color:#fff;font-size:25px;line-height:1;cursor:pointer}

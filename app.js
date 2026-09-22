@@ -12,7 +12,7 @@
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
     doneList: $('doneList'), pendingList: $('pendingList'), jobName: $('jobName'), exportCsvBtn: $('exportCsvBtn'), clearJournalBtn: $('clearJournalBtn'),
-    showLinesInput: $('showLinesInput'), showLabelsInput: $('showLabelsInput'), toast: $('toast'),
+    showLinesInput: $('showLinesInput'), showLabelsInput: $('showLabelsInput'), autoCaptureInput: $('autoCaptureInput'), toast: $('toast'),
     trackingStatus: $('trackingStatus'), trackingMethod: $('trackingMethod'), antennaColorStatus: $('antennaColorStatus'), trackingHud: document.querySelector('.tracking-hud')
   };
 
@@ -25,6 +25,7 @@
     shape: localStorage.getItem('tn_shape') || 'circle',
     showLines: loadJSON('tn_show_lines', true),
     showLabels: loadJSON('tn_show_labels_v2', false),
+    autoCapture: loadJSON('tn_auto_capture_v1', true),
     mode: 'manual',
     calibration: [],
     calibrating: false,
@@ -36,6 +37,10 @@
     grid: [],
     active: null,
     activeSeenAt: 0,
+    laserCandidate: null,
+    laserCandidateSince: 0,
+    laserCandidateSeenAt: 0,
+    lastAutoCaptureAt: 0,
     laser: null,
     journal: loadJSON('tn_journal', []),
     done: new Set(loadJSON('tn_done', [])),
@@ -69,6 +74,7 @@
     localStorage.setItem('tn_shape', state.shape);
     localStorage.setItem('tn_show_lines', JSON.stringify(state.showLines));
     localStorage.setItem('tn_show_labels_v2', JSON.stringify(state.showLabels));
+    localStorage.setItem('tn_auto_capture_v1', JSON.stringify(state.autoCapture));
   }
 
   function saveCalibration() {
@@ -252,6 +258,7 @@
     state.laser = null;
     state.active = null;
     state.activeSeenAt = 0;
+    clearLaserCandidate();
     updateStatus();
     draw();
   }
@@ -352,6 +359,7 @@
       state.grid = [];
       state.active = null;
       state.activeSeenAt = 0;
+      clearLaserCandidate();
       state.antennaColor = null;
       clearSavedCalibration();
       updateCalibrationHint();
@@ -372,6 +380,7 @@
     state.grid = [];
     state.active = null;
     state.activeSeenAt = 0;
+    clearLaserCandidate();
     state.trackingPoints = [];
     state.trackingMode = 'Очікування';
     state.trackingConfidence = 0;
@@ -1013,10 +1022,22 @@
     return best ? { ...best, distance: Math.sqrt(bestD) } : null;
   }
 
-  function confirmActive() {
-    if (!state.active || !state.laser) return toast('Немає активної точки.');
+  function clearLaserCandidate() {
+    state.laserCandidate = null;
+    state.laserCandidateSince = 0;
+    state.laserCandidateSeenAt = 0;
+  }
+
+  function confirmActive({ automatic = false } = {}) {
+    if (!state.active || !state.laser) {
+      if (!automatic) toast('Немає активної точки.');
+      return false;
+    }
     const id = state.active.id;
-    if (state.done.has(id)) return toast(`${id} уже була позначена як знята.`);
+    if (state.done.has(id)) {
+      if (!automatic) toast(`${id} уже була позначена як знята.`);
+      return false;
+    }
     const entry = {
       point: id,
       row: state.active.row,
@@ -1027,13 +1048,33 @@
       laser_x_norm: round6(state.laser.nx),
       laser_y_norm: round6(state.laser.ny),
       antenna_shape: state.shape === 'circle' ? 'circle' : state.shape === 'ellipse' ? 'ellipse' : 'rectangle',
-      confirmation: 'manual'
+      confirmation: automatic ? 'laser_auto' : 'manual'
     };
     state.done.add(id);
     state.journal.push(entry);
     saveState();
-    toast(`${id}: точку знято.`);
+    toast(automatic ? `${id}: лазер зафіксовано, точку знято автоматично.` : `${id}: точку знято.`);
     updateUI();
+    return true;
+  }
+
+  function autoCaptureCandidate(candidate, ts) {
+    if (!state.autoCapture || !candidate || state.done.has(candidate.id)) {
+      clearLaserCandidate();
+      return;
+    }
+    if (state.laserCandidate?.id !== candidate.id) {
+      state.laserCandidate = candidate;
+      state.laserCandidateSince = ts;
+    }
+    state.laserCandidateSeenAt = ts;
+    const stableFor = ts - state.laserCandidateSince;
+    const cooldown = ts - state.lastAutoCaptureAt;
+    if (stableFor < 160 || cooldown < 600) return;
+    if (confirmActive({ automatic: true })) {
+      state.lastAutoCaptureAt = ts;
+      clearLaserCandidate();
+    }
   }
 
   function clearJournal() {
@@ -1402,12 +1443,16 @@
           if (candidate) {
             state.active = candidate;
             state.activeSeenAt = ts;
+            autoCaptureCandidate(candidate, ts);
           }
         } else {
           // The laser detector can miss a frame because of camera exposure or
           // motion. Keep the last selected grid point visible briefly instead
           // of making the UI flicker between a point and an empty state.
           state.laser = null;
+          if (state.laserCandidate && ts - state.laserCandidateSeenAt > 450) {
+            clearLaserCandidate();
+          }
           if (!state.active || ts - state.activeSeenAt > 1600) {
             state.active = null;
           }
@@ -1451,10 +1496,17 @@
   els.clearJournalBtn.addEventListener('click', clearJournal);
   els.showLinesInput?.addEventListener('change', () => { state.showLines = !!els.showLinesInput.checked; saveState(); draw(); });
   els.showLabelsInput?.addEventListener('change', () => { state.showLabels = !!els.showLabelsInput.checked; saveState(); draw(); });
+  els.autoCaptureInput?.addEventListener('change', () => {
+    state.autoCapture = !!els.autoCaptureInput.checked;
+    if (!state.autoCapture) clearLaserCandidate();
+    saveState();
+    updateStatus();
+  });
 
   setSecureBadge();
   els.showLinesInput.checked = !!state.showLines;
   els.showLabelsInput.checked = !!state.showLabels;
+  if (els.autoCaptureInput) els.autoCaptureInput.checked = !!state.autoCapture;
   setShape(state.shape);
   els.thresholdValue.textContent = els.laserThreshold.value;
   updateUI();
