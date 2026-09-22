@@ -736,7 +736,11 @@
         const score = areaScore * .45 + centerScore * .35 + shapeScore * .20;
         if (!best || score > best.score) {
           best?.contour.delete();
-          best = { score, contour, area, center, rect: cv.boundingRect(contour) };
+          let fit = null;
+          if (contour.rows >= 5) {
+            try { fit = cv.fitEllipse(contour); } catch {}
+          }
+          best = { score, contour, area, center, fit, rect: cv.boundingRect(contour) };
         } else {
           contour.delete();
         }
@@ -745,8 +749,10 @@
       if (!best || best.score < .52) return;
       const b = best.rect;
       const bx = b.x + x0, by = b.y + y0;
-      let cx = best.center.x, cy = best.center.y;
-      let rx = b.width / 2, ry = b.height / 2;
+      let cx = best.fit ? best.fit.center.x + x0 : best.center.x;
+      let cy = best.fit ? best.fit.center.y + y0 : best.center.y;
+      let rx = best.fit ? best.fit.size.width / 2 : b.width / 2;
+      let ry = best.fit ? best.fit.size.height / 2 : b.height / 2;
       if (state.shape === 'circle') rx = ry = (rx + ry) / 2;
       const measured = state.shape === 'rect'
         ? [{ x: bx, y: by }, { x: bx + b.width, y: by }, { x: bx + b.width, y: by + b.height }, { x: bx, y: by + b.height }].map(analysisToVideo)
