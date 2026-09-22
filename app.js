@@ -1127,22 +1127,6 @@
       }
     }
 
-    if (state.calibrated && state.trackingPoints.length) {
-      ctx.save();
-      ctx.fillStyle = '#61d8ff';
-      ctx.strokeStyle = 'rgba(0, 30, 48, .8)';
-      ctx.lineWidth = 1.5;
-      const pointRadius = Math.max(2.5, Math.min(w, h) / 260);
-      for (const p of state.trackingPoints) {
-        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, pointRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
     if (state.laser) {
       const r = Math.max(10, Math.min(w, h) / 70);
       ctx.save();
@@ -1358,7 +1342,13 @@
         : 'Сітка не прив’язана';
       els.trackingStatus.className = 'pill ' + (state.calibrated && state.trackingConfidence > .35 ? 'success' : '');
     }
-    if (els.trackingMethod) els.trackingMethod.textContent = `Трекер: ${state.trackingMode}`;
+    if (els.trackingMethod) {
+      els.trackingMethod.textContent = state.calibrated && state.trackingConfidence > .35
+        ? 'Контур + сітка стежать разом'
+        : state.calibrated
+          ? 'Очікування стабільного контуру'
+          : 'Фігура не зафіксована';
+    }
     if (els.antennaColorStatus) {
       els.antennaColorStatus.textContent = state.antennaColor
         ? `Колір антени: ${state.antennaColor.hex}`
