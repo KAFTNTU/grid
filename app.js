@@ -80,8 +80,10 @@
 
   function setSecureBadge() {
     const secure = window.isSecureContext || location.hostname === 'localhost';
-    els.secureBadge.textContent = secure ? 'Камера доступна' : 'Потрібен HTTPS';
-    els.secureBadge.className = 'badge ' + (secure ? 'ok' : 'error');
+    if (els.secureBadge) {
+      els.secureBadge.textContent = secure ? 'Камера доступна' : 'Потрібен HTTPS';
+      els.secureBadge.className = 'badge ' + (secure ? 'ok' : 'error');
+    }
   }
 
   async function startCamera() {
@@ -688,12 +690,16 @@
     const active = state.active;
     els.currentPoint.textContent = active?.id || '—';
     els.dockPoint.textContent = active?.id || '—';
-    els.laserStatus.textContent = state.laser ? 'Лазер знайдено' : 'Лазер не знайдено';
-    els.laserStatus.className = 'pill ' + (state.laser ? 'success' : 'warn');
-    els.trackingStatus.textContent = state.calibrated
-      ? (state.mode === 'aruco' ? 'ArUco прив’язка' : state.mode === 'contour' ? 'Контур прив’язаний' : 'Сітка прив’язана')
-      : 'Сітка не прив’язана';
-    els.trackingStatus.className = 'pill ' + (state.calibrated ? 'success' : '');
+    if (els.laserStatus) {
+      els.laserStatus.textContent = state.laser ? 'Лазер знайдено' : 'Лазер не знайдено';
+      els.laserStatus.className = 'pill ' + (state.laser ? 'success' : 'warn');
+    }
+    if (els.trackingStatus) {
+      els.trackingStatus.textContent = state.calibrated
+        ? (state.mode === 'aruco' ? 'ArUco прив’язка' : state.mode === 'contour' ? 'Контур прив’язаний' : 'Сітка прив’язана')
+        : 'Сітка не прив’язана';
+      els.trackingStatus.className = 'pill ' + (state.calibrated ? 'success' : '');
+    }
     els.confirmPointBtn.disabled = !active || !state.laser || state.done.has(active.id);
     els.confirmPointBtn.textContent = active && state.done.has(active.id) ? 'Уже знято' : 'Точку знято';
   }

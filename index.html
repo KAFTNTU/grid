@@ -13,31 +13,8 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header class="topbar shell">
-    <div class="topbar-main">
-      <div class="topbar-icon">◉</div>
-      <div>
-        <div class="eyebrow">Мобільний візуальний навігатор</div>
-        <h1>Тахеометр · антена</h1>
-        <p class="topbar-subtitle">Камера, сітка, лазерна пляма і журнал точок</p>
-      </div>
-    </div>
-    <div id="secureBadge" class="badge">Перевірка…</div>
-  </header>
-
   <main class="shell app-grid">
     <section class="camera-card card panel-strong">
-      <div class="card-head camera-head">
-        <div>
-          <div class="eyebrow">Камера</div>
-          <h2>Робочий екран</h2>
-        </div>
-        <div class="status-compact">
-          <span id="laserStatus" class="pill warn">Лазер не знайдено</span>
-          <span id="trackingStatus" class="pill">Сітка не прив’язана</span>
-        </div>
-      </div>
-
       <div class="camera-frame" id="cameraFrame">
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
@@ -152,17 +129,6 @@
       <p class="help">Якщо пляма губиться — зменште поріг. Якщо програма ловить відблиски — збільшіть його.</p>
     </section>
 
-    <section class="card panel">
-      <div class="card-head">
-        <div>
-          <div class="eyebrow">Підтвердження</div>
-          <h2>Ручний режим</h2>
-        </div>
-        <span class="pill success">Лише вручну</span>
-      </div>
-      <p class="help manual-help">Після того як тахеометр виконав вимірювання, натисніть <strong>«Точку знято»</strong>. Ніякого Bluetooth, COM/Serial або зовнішнього мосту застосунок не використовує.</p>
-    </section>
-
     <section class="card panel journal-panel">
       <div class="card-head">
         <div>
@@ -204,10 +170,6 @@
       </div>
     </section>
 
-    <section class="card note-card panel note-full">
-      <strong>Роль телефона</strong>
-      <p>Застосунок не виконує геодезичні вимірювання і не замінює тахеометр. Телефон лише показує камеру, прив’язує сітку до антени, знаходить видиму пляму лазера та веде журнал точок.</p>
-    </section>
   </main>
 
   <div class="confirm-dock">
