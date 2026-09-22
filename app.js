@@ -376,12 +376,20 @@
       return;
     }
 
+    state.grid = buildGridPoints(state.anchors);
+    if (state.active && !state.grid.some(p => p.id === state.active.id)) state.active = null;
+    updateUI();
+  }
+
+  function buildGridPoints(anchors) {
+    if (!anchors || anchors.length !== 4) return [];
+
     const { rows, cols } = getGridSize();
     const pts = [];
     let number = 1;
 
     if (state.shape === 'rect') {
-      const [tl, tr, br, bl] = state.anchors;
+      const [tl, tr, br, bl] = anchors;
       for (let r = 0; r < rows; r++) {
         const v = rows === 1 ? 0 : r / (rows - 1);
         for (let c = 0; c < cols; c++) {
@@ -392,11 +400,9 @@
         }
       }
     } else {
-      const basis = ellipseBasis();
+      const basis = ellipseBasis(anchors);
       if (!basis) {
-        state.grid = [];
-        updateUI();
-        return;
+        return [];
       }
       for (let r = 0; r < rows; r++) {
         const ny = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
@@ -408,10 +414,7 @@
         }
       }
     }
-
-    state.grid = pts;
-    if (state.active && !state.grid.some(p => p.id === state.active.id)) state.active = null;
-    updateUI();
+    return pts;
   }
 
   function bilerp(tl, tr, br, bl, u, v) {
@@ -421,9 +424,9 @@
     };
   }
 
-  function ellipseBasis() {
-    if (state.anchors.length !== 4) return null;
-    const [top, right, bottom, left] = state.anchors;
+  function ellipseBasis(anchors = state.anchors) {
+    if (anchors.length !== 4) return null;
+    const [top, right, bottom, left] = anchors;
     const center = {
       x: (top.x + right.x + bottom.x + left.x) / 4,
       y: (top.y + right.y + bottom.y + left.y) / 4
@@ -978,25 +981,30 @@
       ctx.restore();
     }
 
-    if (state.calibrated && state.anchors.length === 4) {
+    const displayAnchors = state.calibrated && state.anchors.length === 4
+      ? state.anchors
+      : state.figure ? figureAnchors() : [];
+    const displayGrid = state.calibrated ? state.grid : buildGridPoints(displayAnchors);
+
+    if (displayAnchors.length === 4) {
       ctx.save();
       ctx.lineWidth = Math.max(2, w / 650);
       ctx.strokeStyle = 'rgba(220, 226, 235, .95)';
       if (state.shape === 'rect') {
         ctx.beginPath();
-        ctx.moveTo(state.anchors[0].x, state.anchors[0].y);
-        for (let i = 1; i < 4; i++) ctx.lineTo(state.anchors[i].x, state.anchors[i].y);
+        ctx.moveTo(displayAnchors[0].x, displayAnchors[0].y);
+        for (let i = 1; i < 4; i++) ctx.lineTo(displayAnchors[i].x, displayAnchors[i].y);
         ctx.closePath();
         ctx.stroke();
       } else {
-        drawEllipseBoundary();
+        drawEllipseBoundary(displayAnchors);
       }
       ctx.restore();
 
-      if (state.showLines) drawGridLines();
+      if (state.showLines) drawGridLines(displayAnchors);
 
       const baseR = Math.max(4, Math.min(w, h) / 180);
-      for (const p of state.grid) {
+      for (const p of displayGrid) {
         const done = state.done.has(p.id);
         const active = state.active?.id === p.id;
         ctx.beginPath();
@@ -1128,14 +1136,14 @@
     updateCalibrationHint();
   }
 
-  function drawGridLines() {
+  function drawGridLines(anchors = state.anchors) {
     const { rows, cols } = getGridSize();
     ctx.save();
     ctx.strokeStyle = 'rgba(223, 229, 236, .52)';
     ctx.lineWidth = Math.max(1.2, Math.min(els.overlay.width, els.overlay.height) / 800);
 
     if (state.shape === 'rect') {
-      const [tl, tr, br, bl] = state.anchors;
+      const [tl, tr, br, bl] = anchors;
       for (let r = 0; r < rows; r++) {
         const v = rows === 1 ? 0 : r / (rows - 1);
         const a = bilerp(tl, tr, br, bl, 0, v);
@@ -1155,7 +1163,7 @@
         ctx.stroke();
       }
     } else {
-      const basis = ellipseBasis();
+      const basis = ellipseBasis(anchors);
       if (!basis) return;
 
       for (let r = 0; r < rows; r++) {
@@ -1183,8 +1191,8 @@
     ctx.restore();
   }
 
-  function drawEllipseBoundary() {
-    const basis = ellipseBasis();
+  function drawEllipseBoundary(anchors = state.anchors) {
+    const basis = ellipseBasis(anchors);
     if (!basis) return;
     ctx.beginPath();
     for (let i = 0; i <= 80; i++) {
