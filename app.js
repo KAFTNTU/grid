@@ -403,6 +403,21 @@
     };
   }
 
+  function getExpectedGridCount() {
+    const { rows, cols } = getGridSize();
+    if (state.shape === 'rect' || !state.clipGridToShape) return rows * cols;
+
+    let count = 0;
+    for (let r = 0; r < rows; r++) {
+      const v = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
+      for (let c = 0; c < cols; c++) {
+        const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
+        if (u * u + v * v <= 1.0001) count++;
+      }
+    }
+    return count;
+  }
+
   function rebuildGrid() {
     if (!state.calibrated) {
       state.grid = [];
@@ -1463,13 +1478,14 @@
   function updateUI() {
     const doneInGrid = state.grid.filter(p => state.done.has(p.id));
     const pending = state.grid.filter(p => !state.done.has(p.id));
-    if (els.gridCount) els.gridCount.textContent = `${state.grid.length} точок`;
+    const totalCount = state.grid.length || getExpectedGridCount();
+    if (els.gridCount) els.gridCount.textContent = `${totalCount} точок`;
     if (els.doneCount) els.doneCount.textContent = doneInGrid.length;
     if (els.pendingCount) els.pendingCount.textContent = pending.length;
     if (els.doneCountDuplicate) els.doneCountDuplicate.textContent = doneInGrid.length;
     if (els.pendingCountDuplicate) els.pendingCountDuplicate.textContent = pending.length;
-    if (els.progressText) els.progressText.textContent = `${doneInGrid.length} / ${state.grid.length}`;
-    if (els.progressBar) els.progressBar.style.width = state.grid.length ? `${doneInGrid.length / state.grid.length * 100}%` : '0%';
+    if (els.progressText) els.progressText.textContent = `${doneInGrid.length} / ${totalCount}`;
+    if (els.progressBar) els.progressBar.style.width = totalCount ? `${doneInGrid.length / totalCount * 100}%` : '0%';
     if (els.doneList) {
       els.doneList.innerHTML = doneInGrid.length ? doneInGrid.map(p => `<span class="point-chip done">${p.id}</span>`).join('') : 'Ще немає';
       els.doneList.classList.toggle('empty', !doneInGrid.length);
