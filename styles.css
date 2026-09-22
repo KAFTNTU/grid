@@ -60,7 +60,12 @@ h1,h2,p{margin:0}
 .shape-menu{position:absolute;top:48px;left:0;display:flex;gap:6px;padding:6px;border:1px solid #536171;border-radius:13px;background:rgba(12,15,20,.94);box-shadow:0 10px 30px rgba(0,0,0,.4)}
 .lock-chip{display:flex;align-items:center;gap:7px;height:40px;margin:0;padding:0 11px;border:1px solid #3e4a57;border-radius:11px;background:rgba(255,255,255,.06);color:#f0f3f7;font-size:13px;font-weight:700;cursor:pointer}
 .lock-chip input{width:18px;height:18px;margin:0;accent-color:#69b7ff}
+.fullscreen-btn{width:40px;height:40px;padding:0;border:1px solid #596778;border-radius:11px;background:linear-gradient(180deg,#2e3743,#1b222b);color:#fff;font-size:22px;line-height:1;cursor:pointer}
+.fullscreen-btn:hover{border-color:#9eb3c9;background:#3a4655}
 .camera-frame{position:relative;width:100%;min-height:48vh;background:#060709;border-radius:18px;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid #242a31}
+.camera-frame:fullscreen,.camera-frame.fullscreen-fallback{width:100vw;height:100vh;min-height:100vh;border:0;border-radius:0}
+.camera-frame.fullscreen-fallback{position:fixed;z-index:100;inset:0}
+body.fullscreen-fallback-active{overflow:hidden}
 video{position:relative;z-index:1;display:block;width:100%;height:auto;max-height:72vh;background:#030405}
 #overlay{position:absolute;z-index:2;inset:0;width:100%;height:100%;touch-action:none}
 .camera-placeholder{position:absolute;z-index:4;inset:0;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;color:var(--muted);background:radial-gradient(circle at 50% 35%,#1b2027 0,#0a0c0f 68%)}

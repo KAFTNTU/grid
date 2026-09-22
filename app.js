@@ -7,7 +7,7 @@
     cameraPlaceholder: $('cameraPlaceholder'), calibrationHint: $('calibrationHint'), secureBadge: $('secureBadge'),
     startCameraBtn: $('startCameraBtn'), stopCameraBtn: $('stopCameraBtn'), currentPoint: $('currentPoint'), dockPoint: $('dockPoint'),
     laserStatus: $('laserStatus'), trackingStatus: $('trackingStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
-    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), antennaColorInput: $('antennaColorInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
+    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), fullscreenBtn: $('fullscreenBtn'), antennaColorInput: $('antennaColorInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
     calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
@@ -401,6 +401,35 @@
       rows: clamp(parseInt(els.rowsInput.value, 10) || 8, 2, 50),
       cols: clamp(parseInt(els.colsInput.value, 10) || 8, 2, 50)
     };
+  }
+
+  function updateFullscreenButton() {
+    const active = document.fullscreenElement === els.cameraFrame || els.cameraFrame.classList.contains('fullscreen-fallback');
+    if (!els.fullscreenBtn) return;
+    els.fullscreenBtn.textContent = active ? '×' : '⛶';
+    els.fullscreenBtn.title = active ? 'Вийти з повного екрана' : 'На весь екран';
+    els.fullscreenBtn.setAttribute('aria-pressed', String(active));
+  }
+
+  async function toggleFullscreen() {
+    const active = document.fullscreenElement === els.cameraFrame || els.cameraFrame.classList.contains('fullscreen-fallback');
+    try {
+      if (active) {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        els.cameraFrame.classList.remove('fullscreen-fallback');
+        document.body.classList.remove('fullscreen-fallback-active');
+      } else if (els.cameraFrame.requestFullscreen) {
+        await els.cameraFrame.requestFullscreen();
+      } else {
+        els.cameraFrame.classList.add('fullscreen-fallback');
+        document.body.classList.add('fullscreen-fallback-active');
+      }
+    } catch {
+      els.cameraFrame.classList.toggle('fullscreen-fallback', !active);
+      document.body.classList.toggle('fullscreen-fallback-active', !active);
+    }
+    updateFullscreenButton();
+    requestAnimationFrame(draw);
   }
 
   function getExpectedGridCount() {
@@ -1551,6 +1580,11 @@
 
   els.startCameraBtn.addEventListener('click', startCamera);
   els.stopCameraBtn.addEventListener('click', stopCamera);
+  els.fullscreenBtn?.addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', () => {
+    updateFullscreenButton();
+    requestAnimationFrame(draw);
+  });
   els.addFigureBtn.addEventListener('click', toggleFigureMenu);
   els.rectShapeBtn.addEventListener('click', () => setShape('rect'));
   els.circleShapeBtn.addEventListener('click', () => setShape('circle'));
