@@ -12,7 +12,7 @@
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
     doneList: $('doneList'), pendingList: $('pendingList'), jobName: $('jobName'), exportCsvBtn: $('exportCsvBtn'), clearJournalBtn: $('clearJournalBtn'),
-    showLinesInput: $('showLinesInput'), showLabelsInput: $('showLabelsInput'), autoCaptureInput: $('autoCaptureInput'), toast: $('toast'),
+    showLinesInput: $('showLinesInput'), showLabelsInput: $('showLabelsInput'), autoCaptureInput: $('autoCaptureInput'), clipGridInput: $('clipGridInput'), toast: $('toast'),
     trackingStatus: $('trackingStatus'), trackingMethod: $('trackingMethod'), antennaColorStatus: $('antennaColorStatus'), trackingHud: document.querySelector('.tracking-hud')
   };
 
@@ -26,6 +26,7 @@
     showLines: loadJSON('tn_show_lines', true),
     showLabels: loadJSON('tn_show_labels_v2', false),
     autoCapture: loadJSON('tn_auto_capture_v1', true),
+    clipGridToShape: loadJSON('tn_clip_grid_v1', false),
     mode: 'manual',
     calibration: [],
     calibrating: false,
@@ -75,6 +76,7 @@
     localStorage.setItem('tn_show_lines', JSON.stringify(state.showLines));
     localStorage.setItem('tn_show_labels_v2', JSON.stringify(state.showLabels));
     localStorage.setItem('tn_auto_capture_v1', JSON.stringify(state.autoCapture));
+    localStorage.setItem('tn_clip_grid_v1', JSON.stringify(state.clipGridToShape));
   }
 
   function saveCalibration() {
@@ -444,10 +446,10 @@
         const v = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
         for (let c = 0; c < cols; c++) {
           const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
-          // Map every square cell into the disk. This keeps exactly
-          // rows × columns points while every point stays inside the
-          // circle/ellipse, including the corner cells.
-          const disk = squareToDisk(u, v);
+          if (state.clipGridToShape && u * u + v * v > 1.0001) continue;
+          // Full mode maps every square cell into the disk. Clip mode
+          // keeps the original rectangular lattice and removes corners.
+          const disk = state.clipGridToShape ? { x: u, y: v } : squareToDisk(u, v);
           const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
           pts.push({ id: `P${number++}`, row: r + 1, col: c + 1, x: p.x, y: p.y, u, v, nx: disk.x, ny: disk.y });
         }
@@ -1335,30 +1337,53 @@
       drawEllipsePath(basis);
       ctx.clip();
 
-      const steps = Math.max(32, rows * cols * 2);
-      for (let r = 0; r < rows; r++) {
-        const v = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
-        ctx.beginPath();
-        for (let i = 0; i <= steps; i++) {
-          const u = -1 + 2 * i / steps;
-          const disk = squareToDisk(u, v);
-          const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
-          if (i === 0) ctx.moveTo(p.x, p.y);
-          else ctx.lineTo(p.x, p.y);
+      if (state.clipGridToShape) {
+        for (let r = 0; r < rows; r++) {
+          const v = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
+          const span = Math.sqrt(Math.max(0, 1 - v * v));
+          const a = ellipsePointFromNormalized(-span, v, basis);
+          const b = ellipsePointFromNormalized(span, v, basis);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
         }
-        ctx.stroke();
-      }
-      for (let c = 0; c < cols; c++) {
-        const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
-        ctx.beginPath();
-        for (let i = 0; i <= steps; i++) {
-          const v = -1 + 2 * i / steps;
-          const disk = squareToDisk(u, v);
-          const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
-          if (i === 0) ctx.moveTo(p.x, p.y);
-          else ctx.lineTo(p.x, p.y);
+        for (let c = 0; c < cols; c++) {
+          const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
+          const span = Math.sqrt(Math.max(0, 1 - u * u));
+          const a = ellipsePointFromNormalized(u, -span, basis);
+          const b = ellipsePointFromNormalized(u, span, basis);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
         }
-        ctx.stroke();
+      } else {
+        const steps = Math.max(32, rows * cols * 2);
+        for (let r = 0; r < rows; r++) {
+          const v = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
+          ctx.beginPath();
+          for (let i = 0; i <= steps; i++) {
+            const u = -1 + 2 * i / steps;
+            const disk = squareToDisk(u, v);
+            const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
+          ctx.stroke();
+        }
+        for (let c = 0; c < cols; c++) {
+          const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
+          ctx.beginPath();
+          for (let i = 0; i <= steps; i++) {
+            const v = -1 + 2 * i / steps;
+            const disk = squareToDisk(u, v);
+            const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
+          ctx.stroke();
+        }
       }
       ctx.restore();
     }
@@ -1537,11 +1562,17 @@
     saveState();
     updateStatus();
   });
+  els.clipGridInput?.addEventListener('change', () => {
+    state.clipGridToShape = !!els.clipGridInput.checked;
+    saveState();
+    rebuildGrid();
+  });
 
   setSecureBadge();
   els.showLinesInput.checked = !!state.showLines;
   els.showLabelsInput.checked = !!state.showLabels;
   if (els.autoCaptureInput) els.autoCaptureInput.checked = !!state.autoCapture;
+  if (els.clipGridInput) els.clipGridInput.checked = !!state.clipGridToShape;
   setShape(state.shape);
   els.thresholdValue.textContent = els.laserThreshold.value;
   updateUI();

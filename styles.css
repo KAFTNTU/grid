@@ -49,6 +49,7 @@ h1,h2,p{margin:0}
 .color-chip{color:#b9e7ff}
 .label-chip{color:#ffe59a}
 .auto-chip{color:#a8f1c6}
+.clip-chip{color:#ffd99a}
 .camera-options{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
 .camera-options .lock-chip{height:34px;padding:0 9px;font-size:12px}
 .camera-options .lock-chip input{width:16px;height:16px}
