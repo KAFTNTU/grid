@@ -1157,7 +1157,9 @@
         const active = state.active?.id === p.id;
         ctx.beginPath();
         ctx.arc(p.x, p.y, active ? baseR * 1.65 : baseR, 0, Math.PI * 2);
-        ctx.fillStyle = done ? '#4ed28a' : active ? '#ff646e' : '#f4c84a';
+        // Green means the point was measured. Other points stay yellow;
+        // the active point is indicated only by a white ring.
+        ctx.fillStyle = done ? '#4ed28a' : '#f4c84a';
         ctx.fill();
         if (active) {
           ctx.lineWidth = Math.max(2, baseR * .35);
@@ -1314,11 +1316,16 @@
       const basis = ellipseBasis(anchors);
       if (!basis) return;
 
+      // Clip the line grid to the actual ellipse. This prevents the
+      // rectangular bounding box from being mistaken for the antenna area.
+      ctx.save();
+      drawEllipsePath(basis);
+      ctx.clip();
+
       for (let r = 0; r < rows; r++) {
         const ny = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
-        const nxSpan = Math.sqrt(Math.max(0, 1 - ny * ny));
-        const a = ellipsePointFromNormalized(-nxSpan, ny, basis);
-        const b = ellipsePointFromNormalized(nxSpan, ny, basis);
+        const a = ellipsePointFromNormalized(-1, ny, basis);
+        const b = ellipsePointFromNormalized(1, ny, basis);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -1326,14 +1333,14 @@
       }
       for (let c = 0; c < cols; c++) {
         const nx = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
-        const nySpan = Math.sqrt(Math.max(0, 1 - nx * nx));
-        const a = ellipsePointFromNormalized(nx, -nySpan, basis);
-        const b = ellipsePointFromNormalized(nx, nySpan, basis);
+        const a = ellipsePointFromNormalized(nx, -1, basis);
+        const b = ellipsePointFromNormalized(nx, 1, basis);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
       }
+      ctx.restore();
     }
 
     ctx.restore();
@@ -1342,6 +1349,11 @@
   function drawEllipseBoundary(anchors = state.anchors) {
     const basis = ellipseBasis(anchors);
     if (!basis) return;
+    drawEllipsePath(basis);
+    ctx.stroke();
+  }
+
+  function drawEllipsePath(basis) {
     ctx.beginPath();
     for (let i = 0; i <= 80; i++) {
       const t = i / 80 * Math.PI * 2;
@@ -1351,7 +1363,6 @@
       else ctx.lineTo(x, y);
     }
     ctx.closePath();
-    ctx.stroke();
   }
 
   function circle(x, y, r, fill) {

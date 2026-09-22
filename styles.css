@@ -50,6 +50,8 @@ h1,h2,p{margin:0}
 .label-chip{color:#ffe59a}
 .auto-chip{color:#a8f1c6}
 .camera-options{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+.camera-options .lock-chip{height:34px;padding:0 9px;font-size:12px}
+.camera-options .lock-chip input{width:16px;height:16px}
 .figure-picker{position:relative}
 .add-figure-btn,.shape-choice{width:40px;height:40px;padding:0;border:1px solid #596778;border-radius:11px;background:linear-gradient(180deg,#2e3743,#1b222b);color:#fff;font-size:25px;line-height:1;cursor:pointer}
 .add-figure-btn:hover,.shape-choice:hover{border-color:#9eb3c9;background:#3a4655}
@@ -74,16 +76,14 @@ video{position:relative;z-index:1;display:block;width:100%;height:auto;max-heigh
 .stat-box{background:linear-gradient(180deg,#1b2027,#13161b);border:1px solid #29303a;border-radius:18px;padding:12px 13px;display:grid;gap:5px;min-height:76px}
 .stat-box strong{font-size:18px;line-height:1.1}
 .stat-box.current strong{font-size:30px}
+.hero-stats .stat-box{min-height:56px;padding:8px 10px;gap:2px;border-radius:14px}
+.hero-stats .stat-box strong,.hero-stats .stat-box.current strong{font-size:16px}
+.hero-stats .stat-box.current strong{font-size:22px}
+.hero-stats .label{font-size:9px}
 .success-box{border-color:#24563c}
 .warn-box{border-color:#6f5922}
 .label{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .current-point{font-size:30px;line-height:1}
-.legend{display:flex;gap:14px;flex-wrap:wrap;padding:10px 2px 0;color:var(--muted);font-size:12px}
-.legend span{display:flex;align-items:center;gap:7px}
-.legend-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
-.legend-dot.pending{background:var(--yellow)}
-.legend-dot.active{background:var(--red);box-shadow:0 0 0 2px #fff}
-.legend-dot.done{background:var(--green)}
 .primary-actions,.button-stack{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
 .button-stack>.btn{flex:1 1 180px}
 .btn{border:1px solid #3a434f;background:linear-gradient(180deg,#272d36,#1b2027);color:#f0f3f7;border-radius:15px;padding:12px 14px;font-weight:700;cursor:pointer;transition:transform .14s ease,border-color .14s ease,background .14s ease,opacity .14s ease;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
