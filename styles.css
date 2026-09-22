@@ -46,6 +46,7 @@ h1,h2,p{margin:0}
 .status-compact{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .camera-card{padding:12px}
 .camera-tools{position:absolute;z-index:10;top:10px;left:10px;display:flex;align-items:flex-start;gap:8px;padding:6px;border:1px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(12,15,20,.82);backdrop-filter:blur(10px)}
+.color-chip{color:#b9e7ff}
 .figure-picker{position:relative}
 .add-figure-btn,.shape-choice{width:40px;height:40px;padding:0;border:1px solid #596778;border-radius:11px;background:linear-gradient(180deg,#2e3743,#1b222b);color:#fff;font-size:25px;line-height:1;cursor:pointer}
 .add-figure-btn:hover,.shape-choice:hover{border-color:#9eb3c9;background:#3a4655}
@@ -58,6 +59,10 @@ video{position:relative;z-index:1;display:block;width:100%;height:auto;max-heigh
 #overlay{position:absolute;z-index:2;inset:0;width:100%;height:100%;touch-action:none}
 .camera-placeholder{position:absolute;z-index:4;inset:0;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;color:var(--muted);background:radial-gradient(circle at 50% 35%,#1b2027 0,#0a0c0f 68%)}
 .camera-placeholder strong{color:#f4f7fa}
+.tracking-hud{position:absolute;z-index:9;top:10px;right:10px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:min(52vw,330px);padding:8px 10px;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(9,12,16,.78);backdrop-filter:blur(8px);color:#c7d2de;font-size:12px;line-height:1.25;pointer-events:none;text-align:right}
+.tracking-hud-main{color:#7fcbff;font-weight:800}
+.tracking-hud.ok .tracking-hud-main{color:#63e39c}
+.tracking-hud.warn .tracking-hud-main{color:#ffd36d}
 .calibration-hint{position:absolute;z-index:8;top:12px;left:12px;right:12px;background:rgba(15,17,21,.84);border:1px solid #495566;padding:12px;border-radius:14px;text-align:center;font-size:13px;color:#f0f3f6;backdrop-filter:blur(8px)}
 .hidden{display:none!important}
 .stats-row{display:grid;gap:10px}
@@ -129,6 +134,7 @@ summary{cursor:pointer;color:#dfe5ec;font-weight:600}
   .grid-two{grid-template-columns:1fr}
   .status-compact{justify-content:flex-start}
   .camera-tools{top:7px;left:7px}
+  .tracking-hud{top:7px;right:7px;max-width:48vw;font-size:10px;padding:6px 7px}
 }
 @media (min-width:860px){
   .app-grid{grid-template-columns:1.18fr .82fr}

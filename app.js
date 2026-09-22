@@ -7,12 +7,13 @@
     cameraPlaceholder: $('cameraPlaceholder'), calibrationHint: $('calibrationHint'), secureBadge: $('secureBadge'),
     startCameraBtn: $('startCameraBtn'), stopCameraBtn: $('stopCameraBtn'), currentPoint: $('currentPoint'), dockPoint: $('dockPoint'),
     laserStatus: $('laserStatus'), trackingStatus: $('trackingStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
-    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
+    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), antennaColorInput: $('antennaColorInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
     calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
     doneList: $('doneList'), pendingList: $('pendingList'), jobName: $('jobName'), exportCsvBtn: $('exportCsvBtn'), clearJournalBtn: $('clearJournalBtn'),
-    showLinesInput: $('showLinesInput'), showLabelsInput: $('showLabelsInput'), toast: $('toast')
+    showLinesInput: $('showLinesInput'), showLabelsInput: $('showLabelsInput'), toast: $('toast'),
+    trackingStatus: $('trackingStatus'), trackingMethod: $('trackingMethod'), antennaColorStatus: $('antennaColorStatus'), trackingHud: document.querySelector('.tracking-hud')
   };
 
   const ctx = els.overlay.getContext('2d');
@@ -46,6 +47,10 @@
     cvPrevGray: null,
     cvPrevPoints: null,
     cvFeatureMode: false,
+    trackingPoints: [],
+    trackingMode: 'Очікування',
+    trackingConfidence: 0,
+    antennaColor: null,
     kalman: null
   };
 
@@ -76,7 +81,9 @@
         cy: p.cy / els.overlay.height,
         rx: p.rx / els.overlay.width,
         ry: p.ry / els.overlay.height
-      }
+      },
+      colorEnabled: !!els.antennaColorInput?.checked,
+      color: state.antennaColor
     }));
   }
 
@@ -101,6 +108,8 @@
     state.calibrated = true;
     state.figureLocked = true;
     state.mode = 'manual';
+    state.antennaColor = saved.color || null;
+    if (els.antennaColorInput) els.antennaColorInput.checked = !!saved.colorEnabled;
     initKalman(state.anchors);
     if (els.figureLockInput) els.figureLockInput.checked = true;
     els.calibrationHint.classList.add('hidden');
@@ -323,6 +332,8 @@
       state.calibrated = true;
       state.figureLocked = true;
       state.mode = 'manual';
+      const frame = captureAnalysisFrame();
+      state.antennaColor = frame ? captureAntennaColor(frame) : null;
       initKalman(state.anchors);
       els.calibrationHint.classList.add('hidden');
       captureAnchorTemplates();
@@ -341,6 +352,7 @@
       state.grid = [];
       state.active = null;
       state.activeSeenAt = 0;
+      state.antennaColor = null;
       clearSavedCalibration();
       updateCalibrationHint();
       updateUI();
@@ -360,6 +372,10 @@
     state.grid = [];
     state.active = null;
     state.activeSeenAt = 0;
+    state.trackingPoints = [];
+    state.trackingMode = 'Очікування';
+    state.trackingConfidence = 0;
+    state.antennaColor = null;
     clearSavedCalibration();
     if (els.figureLockInput) els.figureLockInput.checked = false;
     els.calibrationHint.classList.add('hidden');
@@ -467,6 +483,61 @@
     try { return aCtx.getImageData(0, 0, w, h); } catch { return null; }
   }
 
+  function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    let h = 0;
+    if (d) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h /= 6;
+      if (h < 0) h += 1;
+    }
+    return { h, s: max ? d / max : 0, v: max };
+  }
+
+  function colorToHex(r, g, b) {
+    return `#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  function captureAntennaColor(img) {
+    if (!els.antennaColorInput?.checked || !img || !validAnchors(state.anchors)) return null;
+    const rs = [], gs = [], bs = [];
+    const step = Math.max(2, Math.round(Math.min(img.width, img.height) / 120));
+    for (let y = 0; y < img.height; y += step) {
+      for (let x = 0; x < img.width; x += step) {
+        if (!insideAntenna(analysisToVideo({ x, y }))) continue;
+        const i = (y * img.width + x) * 4;
+        rs.push(img.data[i]); gs.push(img.data[i + 1]); bs.push(img.data[i + 2]);
+      }
+    }
+    if (rs.length < 20) return null;
+    const r = median(rs), g = median(gs), b = median(bs);
+    return { r, g, b, ...rgbToHsv(r, g, b), hex: colorToHex(r, g, b), samples: rs.length };
+  }
+
+  function colorSimilarityAt(img, x, y) {
+    const profile = state.antennaColor;
+    if (!profile) return .5;
+    const radius = 3;
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let yy = Math.max(0, Math.floor(y - radius)); yy <= Math.min(img.height - 1, Math.ceil(y + radius)); yy++) {
+      for (let xx = Math.max(0, Math.floor(x - radius)); xx <= Math.min(img.width - 1, Math.ceil(x + radius)); xx++) {
+        const i = (yy * img.width + xx) * 4;
+        r += img.data[i]; g += img.data[i + 1]; b += img.data[i + 2]; count++;
+      }
+    }
+    if (!count) return 0;
+    const hsv = rgbToHsv(r / count, g / count, b / count);
+    const hueDistance = Math.min(Math.abs(hsv.h - profile.h), 1 - Math.abs(hsv.h - profile.h));
+    if (profile.s > .18 && hsv.s < profile.s * .35) return .05;
+    const hueScore = 1 - clamp(hueDistance / .22, 0, 1);
+    const satScore = 1 - clamp(Math.abs(hsv.s - profile.s) / .55, 0, 1);
+    const valueScore = 1 - clamp(Math.abs(hsv.v - profile.v) / .7, 0, 1);
+    return hueScore * .5 + satScore * .3 + valueScore * .2;
+  }
+
   function captureAnchorTemplates() {
     const img = captureAnalysisFrame();
     if (!img || !state.anchors.length) return;
@@ -494,6 +565,8 @@
     state.cvPrevGray = null;
     state.cvPrevPoints = null;
     state.cvFeatureMode = false;
+    state.trackingMode = state.calibrated ? 'Повторне захоплення' : 'Очікування';
+    state.trackingConfidence = 0;
   }
 
   function initializeCvTracking(img) {
@@ -522,6 +595,9 @@
     state.cvFeatureMode = points.length > 4;
     const flat = points.flatMap(p => [p.x, p.y]);
     state.cvPrevPoints = cv.matFromArray(points.length, 1, cv.CV_32FC2, flat);
+    state.trackingPoints = points.map(analysisToVideo);
+    state.trackingMode = 'OpenCV: контрольні ознаки';
+    state.trackingConfidence = clamp(points.length / 12, 0, 1);
     return true;
   }
 
@@ -546,7 +622,11 @@
   }
 
   function trackAnchors(img) {
-    if (!state.calibrated || state.mode !== 'manual' || state.anchorTemplates.length !== 4) return;
+    if (!state.calibrated || state.mode !== 'manual' || state.anchorTemplates.length !== 4) {
+      state.trackingMode = state.calibrated ? 'Очікування трекера' : 'Очікування фіксації';
+      state.trackingConfidence = 0;
+      return;
+    }
     if (cvReady() && trackAnchorsWithOpenCv(img)) return;
     trackAnchorsWithTemplates(img);
   }
@@ -599,6 +679,9 @@
         const a = videoToAnalysis(p);
         return analysisToVideo(applySimilarity(a, transform));
       });
+      state.trackingPoints = matches.map(m => analysisToVideo({ x: m.nx, y: m.ny }));
+      state.trackingMode = 'OpenCV: optical flow';
+      state.trackingConfidence = clamp(matches.length / Math.max(1, state.cvPrevPoints.rows), 0, 1);
       state.anchors = stabilizeAnchors(updated);
       state.cvPrevGray.delete();
       state.cvPrevPoints.delete();
@@ -726,6 +809,7 @@
 
   function trackAnchorsWithTemplates(img) {
     const updated = [];
+    let matched = 0;
     for (let k = 0; k < 4; k++) {
       const tpl = state.anchorTemplates[k];
       const prev = videoToAnalysis(state.anchors[k]);
@@ -748,11 +832,15 @@
         }
       }
       const candidate = best.score < 28 ? analysisToVideo(best) : state.anchors[k];
+      if (best.score < 28) matched++;
       updated.push({
         x: state.anchors[k].x * 0.65 + candidate.x * 0.35,
         y: state.anchors[k].y * 0.65 + candidate.y * 0.35
       });
     }
+    state.trackingPoints = updated.map(p => ({ ...p }));
+    state.trackingMode = 'Шаблонне стеження';
+    state.trackingConfidence = matched / 4;
     state.anchors = stabilizeAnchors(updated);
     rebuildGrid();
   }
@@ -843,7 +931,8 @@
         const areaScore = Math.exp(-Math.abs(Math.log(area / expectedArea)));
         const centerScore = Math.exp(-distance / Math.max(18, Math.sqrt(expectedArea) * .8));
         const shapeScore = state.shape === 'circle' ? clamp(circularity / .78, 0, 1) : state.shape === 'ellipse' ? clamp(circularity / .62, 0, 1) : .65;
-        const score = areaScore * .45 + centerScore * .35 + shapeScore * .20;
+        const colorScore = state.antennaColor ? colorSimilarityAt(img, center.x, center.y) : .5;
+        const score = areaScore * .35 + centerScore * .28 + shapeScore * .17 + colorScore * .20;
         if (!best || score > best.score) {
           best?.contour.delete();
           let fit = null;
@@ -1036,6 +1125,22 @@
         }
         if (state.showLabels) label(p.id, p.x + baseR + 3, p.y - baseR - 1, done ? '#b4f5d1' : active ? '#fff' : '#ffea9a');
       }
+    }
+
+    if (state.calibrated && state.trackingPoints.length) {
+      ctx.save();
+      ctx.fillStyle = '#61d8ff';
+      ctx.strokeStyle = 'rgba(0, 30, 48, .8)';
+      ctx.lineWidth = 1.5;
+      const pointRadius = Math.max(2.5, Math.min(w, h) / 260);
+      for (const p of state.trackingPoints) {
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, pointRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     if (state.laser) {
@@ -1249,9 +1354,20 @@
     }
     if (els.trackingStatus) {
       els.trackingStatus.textContent = state.calibrated
-        ? 'Фігура зафіксована'
+        ? `Стеження ${Math.round(state.trackingConfidence * 100)}%`
         : 'Сітка не прив’язана';
-      els.trackingStatus.className = 'pill ' + (state.calibrated ? 'success' : '');
+      els.trackingStatus.className = 'pill ' + (state.calibrated && state.trackingConfidence > .35 ? 'success' : '');
+    }
+    if (els.trackingMethod) els.trackingMethod.textContent = `Трекер: ${state.trackingMode}`;
+    if (els.antennaColorStatus) {
+      els.antennaColorStatus.textContent = state.antennaColor
+        ? `Колір антени: ${state.antennaColor.hex}`
+        : 'Колір антени: вимкнено';
+    }
+    if (els.trackingHud) {
+      els.trackingHud.classList.toggle('ok', state.calibrated && state.trackingConfidence > .35);
+      els.trackingHud.classList.toggle('warn', state.calibrated && state.trackingConfidence <= .35);
+      if (state.antennaColor) els.trackingHud.style.setProperty('--antenna-color', state.antennaColor.hex);
     }
     els.confirmPointBtn.disabled = !active || !state.laser || state.done.has(active.id);
     els.confirmPointBtn.textContent = active && state.done.has(active.id) ? 'Уже знято' : 'Точку знято';
@@ -1329,6 +1445,14 @@
   els.circleShapeBtn.addEventListener('click', () => setShape('circle'));
   els.ellipseShapeBtn.addEventListener('click', () => setShape('ellipse'));
   els.figureLockInput.addEventListener('change', () => lockFigure(els.figureLockInput.checked));
+  els.antennaColorInput?.addEventListener('change', () => {
+    if (state.figureLocked) {
+      const frame = captureAnalysisFrame();
+      state.antennaColor = els.antennaColorInput.checked && frame ? captureAntennaColor(frame) : null;
+      saveCalibration();
+      updateStatus();
+    }
+  });
   els.rowsInput.addEventListener('change', rebuildGrid);
   els.colsInput.addEventListener('change', rebuildGrid);
   els.laserThreshold.addEventListener('input', () => els.thresholdValue.textContent = els.laserThreshold.value);

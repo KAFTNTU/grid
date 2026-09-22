@@ -28,12 +28,21 @@
             <input id="figureLockInput" type="checkbox" disabled />
             <span>Фікс</span>
           </label>
+          <label class="lock-chip color-chip" title="Запам’ятати колір антени при фіксації">
+            <input id="antennaColorInput" type="checkbox" />
+            <span>Колір</span>
+          </label>
         </div>
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
         <div id="cameraPlaceholder" class="camera-placeholder">
           <strong>Камера вимкнена</strong>
           <span>Натисніть «Увімкнути камеру»</span>
+        </div>
+        <div class="tracking-hud" aria-live="polite">
+          <span id="trackingStatus" class="tracking-hud-main">Сітка не прив’язана</span>
+          <span id="trackingMethod">Трекер: очікування</span>
+          <span id="antennaColorStatus">Колір антени: вимкнено</span>
         </div>
         <div id="calibrationHint" class="calibration-hint hidden"></div>
         <p id="calibrationHelp" class="hidden"></p>
