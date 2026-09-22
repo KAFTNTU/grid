@@ -135,6 +135,11 @@ summary{cursor:pointer;color:#dfe5ec;font-weight:600}
   .camera-card,.note-full{grid-column:1/-1}
 }
 @media (min-width:681px){
+  .camera-frame:not(.live){min-height:72vh}
+  .camera-card{padding:10px}
+  .hero-stats{margin-top:8px}
+}
+@media (min-width:681px){
   body{padding-bottom:18px}
   .confirm-dock{display:none}
 }
