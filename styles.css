@@ -134,3 +134,7 @@ summary{cursor:pointer;color:#dfe5ec;font-weight:600}
   .app-grid{grid-template-columns:1.18fr .82fr}
   .camera-card,.note-full{grid-column:1/-1}
 }
+@media (min-width:681px){
+  body{padding-bottom:18px}
+  .confirm-dock{display:none}
+}
