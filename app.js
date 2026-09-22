@@ -274,12 +274,8 @@
   }
 
   function updateCalibrationHint() {
-    if (!state.running || state.figureLocked) {
-      els.calibrationHint.classList.add('hidden');
-      return;
-    }
-    els.calibrationHint.textContent = 'Перетягни фігуру на антену та зафіксуй її галочкою.';
-    els.calibrationHint.classList.remove('hidden');
+    // The camera view should stay clear; controls already explain the workflow.
+    els.calibrationHint.classList.add('hidden');
   }
 
   function ensureFigure() {
