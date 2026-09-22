@@ -1186,9 +1186,14 @@
       ctx.restore();
     }
 
-    const displayAnchors = state.calibrated && state.anchors.length === 4
+    // Keep the last valid contour visible even if a tracking frame is bad.
+    // The grid may still contain the previous valid points, so the outline
+    // must not disappear just because the newest anchor update failed.
+    const displayAnchors = state.calibrated && usableAnchors(state.anchors)
       ? state.anchors
-      : state.figure ? figureAnchors() : [];
+      : state.calibrated && usableAnchors(state.calibration)
+        ? state.calibration
+        : state.figure ? figureAnchors() : [];
     const previewGrid = buildGridPoints(displayAnchors);
     const displayGrid = state.grid.length ? state.grid : previewGrid;
     if (state.calibrated && !state.grid.length && previewGrid.length) state.grid = previewGrid;
@@ -1452,6 +1457,13 @@
       else ctx.lineTo(x, y);
     }
     ctx.closePath();
+  }
+
+  function usableAnchors(anchors) {
+    if (!validAnchors(anchors)) return false;
+    if (state.shape === 'rect') return true;
+    const basis = ellipseBasis(anchors);
+    return Math.hypot(basis.ax.x, basis.ax.y) > 4 && Math.hypot(basis.ay.x, basis.ay.y) > 4;
   }
 
   function circle(x, y, r, fill) {
