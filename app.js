@@ -34,6 +34,7 @@
     anchorTemplates: [],
     grid: [],
     active: null,
+    activeSeenAt: 0,
     laser: null,
     journal: loadJSON('tn_journal', []),
     done: new Set(loadJSON('tn_done', [])),
@@ -171,7 +172,6 @@
       state.running = true;
       requestAnimationFrame(loop);
     } catch (err) {
-      console.error(err);
       if (state.stream) state.stream.getTracks().forEach(t => t.stop());
       state.stream = null;
       els.video.srcObject = null;
@@ -202,6 +202,7 @@
     state.grid = [];
     state.laser = null;
     state.active = null;
+    state.activeSeenAt = 0;
     updateStatus();
     draw();
   }
@@ -291,6 +292,7 @@
       state.kalman = null;
       state.grid = [];
       state.active = null;
+      state.activeSeenAt = 0;
       updateCalibrationHint();
       updateUI();
     }
@@ -308,6 +310,7 @@
     state.figure = null;
     state.grid = [];
     state.active = null;
+    state.activeSeenAt = 0;
     if (els.figureLockInput) els.figureLockInput.checked = false;
     els.calibrationHint.classList.add('hidden');
     ensureFigure();
@@ -544,7 +547,6 @@
       rebuildGrid();
       return true;
     } catch (err) {
-      console.warn('OpenCV tracking failed', err);
       releaseCvTracking();
       return false;
     } finally {
@@ -807,7 +809,8 @@
       initializeCvTracking(img);
       rebuildGrid();
     } catch (err) {
-      console.warn('Contour refinement failed', err);
+      // A frame without a usable contour is normal while the camera moves.
+      // Keep the last stable grid and do not flood the browser console.
     } finally {
       gray?.delete();
       roi?.delete();
@@ -1217,8 +1220,23 @@
           state.lastContourAt = ts;
           refineContourWithOpenCv(img);
         }
-        state.laser = detectLaser(img);
-        state.active = nearestGridPoint(state.laser);
+        const detectedLaser = detectLaser(img);
+        if (detectedLaser) {
+          state.laser = detectedLaser;
+          const candidate = nearestGridPoint(detectedLaser);
+          if (candidate) {
+            state.active = candidate;
+            state.activeSeenAt = ts;
+          }
+        } else {
+          // The laser detector can miss a frame because of camera exposure or
+          // motion. Keep the last selected grid point visible briefly instead
+          // of making the UI flicker between a point and an empty state.
+          state.laser = null;
+          if (!state.active || ts - state.activeSeenAt > 1600) {
+            state.active = null;
+          }
+        }
         updateStatus();
         draw();
       }
