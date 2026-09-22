@@ -24,7 +24,7 @@
     running: false,
     shape: localStorage.getItem('tn_shape') || 'circle',
     showLines: loadJSON('tn_show_lines', true),
-    showLabels: loadJSON('tn_show_labels', true),
+    showLabels: loadJSON('tn_show_labels_v2', false),
     mode: 'manual',
     calibration: [],
     calibrating: false,
@@ -68,7 +68,7 @@
     localStorage.setItem('tn_done', JSON.stringify([...state.done]));
     localStorage.setItem('tn_shape', state.shape);
     localStorage.setItem('tn_show_lines', JSON.stringify(state.showLines));
-    localStorage.setItem('tn_show_labels', JSON.stringify(state.showLabels));
+    localStorage.setItem('tn_show_labels_v2', JSON.stringify(state.showLabels));
   }
 
   function saveCalibration() {
