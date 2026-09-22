@@ -441,16 +441,33 @@
         return [];
       }
       for (let r = 0; r < rows; r++) {
-        const ny = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
+        const v = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
         for (let c = 0; c < cols; c++) {
-          const nx = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
-          if (nx * nx + ny * ny > 1.0001) continue;
-          const p = ellipsePointFromNormalized(nx, ny, basis);
-          pts.push({ id: `P${number++}`, row: r + 1, col: c + 1, x: p.x, y: p.y, nx, ny });
+          const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
+          // Map every square cell into the disk. This keeps exactly
+          // rows × columns points while every point stays inside the
+          // circle/ellipse, including the corner cells.
+          const disk = squareToDisk(u, v);
+          const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
+          pts.push({ id: `P${number++}`, row: r + 1, col: c + 1, x: p.x, y: p.y, u, v, nx: disk.x, ny: disk.y });
         }
       }
     }
     return pts;
+  }
+
+  // Shirley–Chiu concentric square-to-disk mapping. It preserves the
+  // matrix structure but bends its outer rows/columns onto the ellipse.
+  function squareToDisk(u, v) {
+    if (Math.abs(u) < 1e-9 && Math.abs(v) < 1e-9) return { x: 0, y: 0 };
+    if (Math.abs(u) > Math.abs(v)) {
+      const r = u;
+      const phi = Math.PI / 4 * (v / u);
+      return { x: r * Math.cos(phi), y: r * Math.sin(phi) };
+    }
+    const r = v;
+    const phi = Math.PI / 2 - Math.PI / 4 * (u / v);
+    return { x: r * Math.cos(phi), y: r * Math.sin(phi) };
   }
 
   function validAnchors(anchors) {
@@ -1043,10 +1060,6 @@
       row: state.active.row,
       column: state.active.col,
       time: new Date().toISOString(),
-      laser_x_px: round2(state.laser.x),
-      laser_y_px: round2(state.laser.y),
-      laser_x_norm: round6(state.laser.nx),
-      laser_y_norm: round6(state.laser.ny),
       antenna_shape: state.shape === 'circle' ? 'circle' : state.shape === 'ellipse' ? 'ellipse' : 'rectangle',
       confirmation: automatic ? 'laser_auto' : 'manual'
     };
@@ -1322,22 +1335,29 @@
       drawEllipsePath(basis);
       ctx.clip();
 
+      const steps = Math.max(32, rows * cols * 2);
       for (let r = 0; r < rows; r++) {
-        const ny = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
-        const a = ellipsePointFromNormalized(-1, ny, basis);
-        const b = ellipsePointFromNormalized(1, ny, basis);
+        const v = rows === 1 ? 0 : -1 + 2 * r / (rows - 1);
         ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
+        for (let i = 0; i <= steps; i++) {
+          const u = -1 + 2 * i / steps;
+          const disk = squareToDisk(u, v);
+          const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
         ctx.stroke();
       }
       for (let c = 0; c < cols; c++) {
-        const nx = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
-        const a = ellipsePointFromNormalized(nx, -1, basis);
-        const b = ellipsePointFromNormalized(nx, 1, basis);
+        const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
         ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
+        for (let i = 0; i <= steps; i++) {
+          const v = -1 + 2 * i / steps;
+          const disk = squareToDisk(u, v);
+          const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
         ctx.stroke();
       }
       ctx.restore();
@@ -1418,17 +1438,21 @@
   function updateUI() {
     const doneInGrid = state.grid.filter(p => state.done.has(p.id));
     const pending = state.grid.filter(p => !state.done.has(p.id));
-    els.gridCount.textContent = `${state.grid.length} точок`;
-    els.doneCount.textContent = doneInGrid.length;
-    els.pendingCount.textContent = pending.length;
+    if (els.gridCount) els.gridCount.textContent = `${state.grid.length} точок`;
+    if (els.doneCount) els.doneCount.textContent = doneInGrid.length;
+    if (els.pendingCount) els.pendingCount.textContent = pending.length;
     if (els.doneCountDuplicate) els.doneCountDuplicate.textContent = doneInGrid.length;
     if (els.pendingCountDuplicate) els.pendingCountDuplicate.textContent = pending.length;
-    els.progressText.textContent = `${doneInGrid.length} / ${state.grid.length}`;
-    els.progressBar.style.width = state.grid.length ? `${doneInGrid.length / state.grid.length * 100}%` : '0%';
-    els.doneList.innerHTML = doneInGrid.length ? doneInGrid.map(p => `<span class="point-chip done">${p.id}</span>`).join('') : 'Ще немає';
-    els.doneList.classList.toggle('empty', !doneInGrid.length);
-    els.pendingList.innerHTML = pending.length ? pending.map(p => `<span class="point-chip">${p.id}</span>`).join('') : 'Усі точки знято';
-    els.pendingList.classList.toggle('empty', !pending.length);
+    if (els.progressText) els.progressText.textContent = `${doneInGrid.length} / ${state.grid.length}`;
+    if (els.progressBar) els.progressBar.style.width = state.grid.length ? `${doneInGrid.length / state.grid.length * 100}%` : '0%';
+    if (els.doneList) {
+      els.doneList.innerHTML = doneInGrid.length ? doneInGrid.map(p => `<span class="point-chip done">${p.id}</span>`).join('') : 'Ще немає';
+      els.doneList.classList.toggle('empty', !doneInGrid.length);
+    }
+    if (els.pendingList) {
+      els.pendingList.innerHTML = pending.length ? pending.map(p => `<span class="point-chip">${p.id}</span>`).join('') : 'Усі точки знято';
+      els.pendingList.classList.toggle('empty', !pending.length);
+    }
     updateStatus();
     draw();
   }
@@ -1503,8 +1527,8 @@
   els.colsInput.addEventListener('change', rebuildGrid);
   els.laserThreshold.addEventListener('input', () => els.thresholdValue.textContent = els.laserThreshold.value);
   els.confirmPointBtn.addEventListener('click', confirmActive);
-  els.exportCsvBtn.addEventListener('click', exportCSV);
-  els.clearJournalBtn.addEventListener('click', clearJournal);
+  els.exportCsvBtn?.addEventListener('click', exportCSV);
+  els.clearJournalBtn?.addEventListener('click', clearJournal);
   els.showLinesInput?.addEventListener('change', () => { state.showLines = !!els.showLinesInput.checked; saveState(); draw(); });
   els.showLabelsInput?.addEventListener('change', () => { state.showLabels = !!els.showLabelsInput.checked; saveState(); draw(); });
   els.autoCaptureInput?.addEventListener('change', () => {
