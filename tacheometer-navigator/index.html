@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#121417" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Навігатор тахеометра</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/cv.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/aruco.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar shell">
+    <div class="topbar-main">
+      <div class="topbar-icon">◉</div>
+      <div>
+        <div class="eyebrow">Мобільний візуальний навігатор</div>
+        <h1>Тахеометр · антена</h1>
+        <p class="topbar-subtitle">Камера, сітка, лазерна пляма і журнал точок</p>
+      </div>
+    </div>
+    <div id="secureBadge" class="badge">Перевірка…</div>
+  </header>
+
+  <main class="shell app-grid">
+    <section class="camera-card card panel-strong">
+      <div class="card-head camera-head">
+        <div>
+          <div class="eyebrow">Камера</div>
+          <h2>Робочий екран</h2>
+        </div>
+        <div class="status-compact">
+          <span id="laserStatus" class="pill warn">Лазер не знайдено</span>
+          <span id="trackingStatus" class="pill">Сітка не прив’язана</span>
+        </div>
+      </div>
+
+      <div class="camera-frame" id="cameraFrame">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="cameraPlaceholder" class="camera-placeholder">
+          <strong>Камера вимкнена</strong>
+          <span>Натисніть «Увімкнути камеру»</span>
+        </div>
+        <div id="calibrationHint" class="calibration-hint hidden"></div>
+      </div>
+      <canvas id="analysisCanvas" class="hidden"></canvas>
+
+      <div class="stats-row hero-stats">
+        <div class="stat-box current">
+          <span class="label">Поточна точка</span>
+          <strong id="currentPoint" class="current-point">—</strong>
+        </div>
+        <div class="stat-box">
+          <span class="label">Усього</span>
+          <strong id="gridCount">0 точок</strong>
+        </div>
+        <div class="stat-box">
+          <span class="label">Прогрес</span>
+          <strong id="progressText">0 / 0</strong>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><i class="legend-dot pending"></i> незнята</span>
+        <span><i class="legend-dot active"></i> активна</span>
+        <span><i class="legend-dot done"></i> знята</span>
+      </div>
+
+      <div class="primary-actions">
+        <button id="startCameraBtn" class="btn primary">Увімкнути камеру</button>
+        <button id="stopCameraBtn" class="btn ghost" disabled>Вимкнути</button>
+      </div>
+    </section>
+
+    <section class="card panel controls-panel">
+      <div class="card-head">
+        <div>
+          <div class="eyebrow">Сітка</div>
+          <h2>Антена та калібрування</h2>
+        </div>
+      </div>
+
+      <label>Форма антени</label>
+      <div class="segmented shape-segmented" role="group" aria-label="Форма антени">
+        <button id="rectShapeBtn" class="seg active">Прямокутна</button>
+        <button id="ellipseShapeBtn" class="seg">Кругла / еліпс</button>
+      </div>
+
+      <div class="grid-two compact-gap">
+        <label>Рядків
+          <input id="rowsInput" type="number" min="2" max="50" value="8" inputmode="numeric" />
+        </label>
+        <label>Колонок
+          <input id="colsInput" type="number" min="2" max="50" value="8" inputmode="numeric" />
+        </label>
+      </div>
+
+      <div class="inline-note" id="circleGridInfo">
+        Для круглої антени сітка будується як <strong>горизонтальні та вертикальні лінії</strong> в межах кола / еліпса. Точки — це <strong>перетини</strong> цих ліній усередині антени.
+      </div>
+
+      <div class="grid-two compact-gap toggle-grid">
+        <label class="toggle-card">
+          <span>Показувати лінії сітки</span>
+          <input id="showLinesInput" type="checkbox" checked />
+        </label>
+        <label class="toggle-card">
+          <span>Показувати номери точок</span>
+          <input id="showLabelsInput" type="checkbox" checked />
+        </label>
+      </div>
+
+      <label>Метод прив’язки
+        <select id="calibrationMode">
+          <option value="manual">Вручну 4 точки + відстеження</option>
+          <option value="aruco">ArUco 0–3</option>
+          <option value="contour">Автоконтур (експериментальний)</option>
+        </select>
+      </label>
+
+      <div class="button-stack">
+        <button id="manualCalibrateBtn" class="btn">Вказати 4 точки</button>
+        <button id="arucoBtn" class="btn">Увімкнути ArUco</button>
+        <button id="contourBtn" class="btn">Знайти контур</button>
+        <button id="resetCalibrationBtn" class="btn ghost">Скинути калібрування</button>
+      </div>
+      <p id="calibrationHelp" class="help">Для прямокутної антени: лівий верхній → правий верхній → правий нижній → лівий нижній.</p>
+    </section>
+
+    <section class="card panel">
+      <div class="card-head">
+        <div>
+          <div class="eyebrow">Розпізнавання</div>
+          <h2>Лазерна пляма</h2>
+        </div>
+      </div>
+
+      <label>Тип плями
+        <select id="laserMode">
+          <option value="auto">Авто: яскрава / червона</option>
+          <option value="red">Червона</option>
+          <option value="bright">Яскрава біла</option>
+        </select>
+      </label>
+      <label>Поріг чутливості <span id="thresholdValue">205</span>
+        <input id="laserThreshold" type="range" min="120" max="250" value="205" />
+      </label>
+      <p class="help">Якщо пляма губиться — зменште поріг. Якщо програма ловить відблиски — збільшіть його.</p>
+    </section>
+
+    <section class="card panel">
+      <div class="card-head">
+        <div>
+          <div class="eyebrow">Підтвердження</div>
+          <h2>Ручний режим</h2>
+        </div>
+        <span class="pill success">Лише вручну</span>
+      </div>
+      <p class="help manual-help">Після того як тахеометр виконав вимірювання, натисніть <strong>«Точку знято»</strong>. Ніякого Bluetooth, COM/Serial або зовнішнього мосту застосунок не використовує.</p>
+    </section>
+
+    <section class="card panel journal-panel">
+      <div class="card-head">
+        <div>
+          <div class="eyebrow">Журнал</div>
+          <h2>Точки</h2>
+        </div>
+      </div>
+
+      <div class="stats-row small-stats">
+        <div class="stat-box success-box">
+          <span class="label">Зняті</span>
+          <strong id="doneCount">0</strong>
+        </div>
+        <div class="stat-box warn-box">
+          <span class="label">Незняті</span>
+          <strong id="pendingCount">0</strong>
+        </div>
+      </div>
+
+      <div class="progress"><div id="progressBar"></div></div>
+
+      <div class="lists">
+        <details open>
+          <summary>Зняті <span id="doneCountDuplicate">0</span></summary>
+          <div id="doneList" class="point-list empty">Ще немає</div>
+        </details>
+        <details>
+          <summary>Незняті <span id="pendingCountDuplicate">0</span></summary>
+          <div id="pendingList" class="point-list"></div>
+        </details>
+      </div>
+
+      <label>Назва роботи / об’єкта
+        <input id="jobName" type="text" placeholder="antenna_01" />
+      </label>
+      <div class="button-stack">
+        <button id="exportCsvBtn" class="btn">Експорт CSV</button>
+        <button id="clearJournalBtn" class="btn danger ghost">Очистити журнал</button>
+      </div>
+    </section>
+
+    <section class="card note-card panel note-full">
+      <strong>Роль телефона</strong>
+      <p>Застосунок не виконує геодезичні вимірювання і не замінює тахеометр. Телефон лише показує камеру, прив’язує сітку до антени, знаходить видиму пляму лазера та веде журнал точок.</p>
+    </section>
+  </main>
+
+  <div class="confirm-dock">
+    <div>
+      <span class="label">Активна</span>
+      <strong id="dockPoint">—</strong>
+    </div>
+    <button id="confirmPointBtn" class="btn confirm" disabled>Точку знято</button>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+</body>
+</html>

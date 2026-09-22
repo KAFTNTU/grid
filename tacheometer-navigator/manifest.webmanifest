@@ -1,0 +1,10 @@
+{
+  "name": "Навігатор тахеометра",
+  "short_name": "Тахеометр",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#071018",
+  "theme_color": "#0b1118",
+  "lang": "uk",
+  "description": "Візуальний мобільний навігатор сітки точок для роботи з тахеометром."
+}
