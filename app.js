@@ -96,21 +96,64 @@
     }
   }
 
+  function cameraErrorMessage(err) {
+    switch (err?.name) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        return 'Доступ до камери заборонений. Натисніть замок біля адреси → Камера → Дозволити, потім оновіть сторінку.';
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'Камеру не знайдено. Перевірте, чи підключена вебкамера до ПК.';
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'Камера зайнята іншою програмою. Закрийте Teams, Zoom, OBS або іншу вкладку.';
+      case 'SecurityError':
+        return 'Браузер заблокував камеру. Відкрийте сайт через HTTPS і дозвольте доступ.';
+      case 'OverconstrainedError':
+        return 'Камера не підтримує вибраний режим. Спробуйте іншу вебкамеру.';
+      default:
+        return `Не вдалося відкрити камеру${err?.name ? ` (${err.name})` : ''}. Перевірте дозвіл браузера.`;
+    }
+  }
+
+  async function requestCameraStream() {
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const preferred = {
+      video: isMobile
+        ? { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        : { width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    };
+
+    try {
+      return await navigator.mediaDevices.getUserMedia(preferred);
+    } catch (firstError) {
+      // Some desktop cameras reject resolution/facing-mode hints. Retry with
+      // the browser's default camera instead of failing the whole startup.
+      if (firstError?.name === 'NotAllowedError' || firstError?.name === 'SecurityError' || firstError?.name === 'NotReadableError') {
+        throw firstError;
+      }
+      return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+  }
+
   async function startCamera() {
     if (!navigator.mediaDevices?.getUserMedia) {
       toast('Цей браузер не підтримує доступ до камери.');
       return;
     }
+    if (!window.isSecureContext && !['localhost', '127.0.0.1'].includes(location.hostname)) {
+      toast('Камера працює тільки через HTTPS. Відкрийте адресу з https:// і дозвольте доступ.');
+      return;
+    }
     try {
-      state.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false
-      });
+      state.stream = await requestCameraStream();
       els.video.srcObject = state.stream;
       await els.video.play();
-      await new Promise(resolve => {
+      await new Promise((resolve, reject) => {
         if (els.video.videoWidth) return resolve();
-        els.video.onloadedmetadata = () => resolve();
+        const timer = setTimeout(() => reject(new Error('VIDEO_METADATA_TIMEOUT')), 6000);
+        els.video.onloadedmetadata = () => { clearTimeout(timer); resolve(); };
       });
       const vw = els.video.videoWidth || 1280;
       const vh = els.video.videoHeight || 720;
@@ -129,7 +172,10 @@
       requestAnimationFrame(loop);
     } catch (err) {
       console.error(err);
-      toast('Не вдалося відкрити камеру. Перевірте дозвіл і HTTPS.');
+      if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+      state.stream = null;
+      els.video.srcObject = null;
+      toast(err?.message === 'VIDEO_METADATA_TIMEOUT' ? 'Камера не передала відео. Перевірте підключення вебкамери.' : cameraErrorMessage(err));
     }
   }
 
