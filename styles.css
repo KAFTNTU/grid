@@ -76,10 +76,11 @@ video{position:relative;z-index:1;display:block;width:100%;height:auto;max-heigh
 .stat-box{background:linear-gradient(180deg,#1b2027,#13161b);border:1px solid #29303a;border-radius:18px;padding:12px 13px;display:grid;gap:5px;min-height:76px}
 .stat-box strong{font-size:18px;line-height:1.1}
 .stat-box.current strong{font-size:30px}
-.hero-stats .stat-box{min-height:56px;padding:8px 10px;gap:2px;border-radius:14px}
-.hero-stats .stat-box strong,.hero-stats .stat-box.current strong{font-size:16px}
-.hero-stats .stat-box.current strong{font-size:22px}
-.hero-stats .label{font-size:9px}
+.hero-stats{gap:6px;margin-top:8px}
+.hero-stats .stat-box{min-height:42px;height:42px;padding:5px 9px;gap:8px;border-radius:12px;display:flex;align-items:center;justify-content:space-between}
+.hero-stats .stat-box strong,.hero-stats .stat-box.current strong{font-size:15px}
+.hero-stats .stat-box.current strong{font-size:18px}
+.hero-stats .label{font-size:8px;line-height:1}
 .success-box{border-color:#24563c}
 .warn-box{border-color:#6f5922}
 .label{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
