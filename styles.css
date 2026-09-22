@@ -121,15 +121,14 @@ summary{cursor:pointer;color:#dfe5ec;font-weight:600}
 .confirm-dock strong{font-size:22px}
 .toast{position:fixed;z-index:50;left:50%;bottom:110px;transform:translateX(-50%);background:#171b20;border:1px solid #444d59;color:white;border-radius:14px;padding:11px 15px;max-width:min(92vw,520px);box-shadow:0 12px 34px rgba(0,0,0,.35);text-align:center}
 .manual-help{font-size:13px}
-.camera-frame.live{height:min(72vh,76vw);min-height:260px;aspect-ratio:auto!important}
-.camera-frame.live video{width:100%;height:100%;max-height:none;object-fit:cover}
+.camera-frame.live{height:auto;min-height:0}
+.camera-frame.live video{width:100%;height:100%;max-height:none;object-fit:fill}
 @media (max-width:680px){
   .topbar{align-items:flex-start;flex-direction:column}
   .hero-stats{grid-template-columns:1fr}
   .grid-two{grid-template-columns:1fr}
   .status-compact{justify-content:flex-start}
   .camera-tools{top:7px;left:7px}
-  .camera-frame.live{height:min(70vh,112vw)}
 }
 @media (min-width:860px){
   .app-grid{grid-template-columns:1.18fr .82fr}

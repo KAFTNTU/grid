@@ -7,7 +7,7 @@
     cameraPlaceholder: $('cameraPlaceholder'), calibrationHint: $('calibrationHint'), secureBadge: $('secureBadge'),
     startCameraBtn: $('startCameraBtn'), stopCameraBtn: $('stopCameraBtn'), currentPoint: $('currentPoint'), dockPoint: $('dockPoint'),
     laserStatus: $('laserStatus'), trackingStatus: $('trackingStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
-    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
+    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
     calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
@@ -21,7 +21,7 @@
   const state = {
     stream: null,
     running: false,
-    shape: localStorage.getItem('tn_shape') || 'ellipse',
+    shape: localStorage.getItem('tn_shape') || 'circle',
     showLines: loadJSON('tn_show_lines', true),
     showLabels: loadJSON('tn_show_labels', true),
     mode: 'manual',
@@ -42,7 +42,8 @@
     toastTimer: null,
     pointerEdit: null,
     cvPrevGray: null,
-    cvPrevPoints: null
+    cvPrevPoints: null,
+    cvFeatureMode: false
   };
 
   function loadJSON(key, fallback) {
@@ -72,10 +73,13 @@
   function setShape(shape) {
     state.shape = shape;
     els.rectShapeBtn.classList.toggle('active', shape === 'rect');
+    els.circleShapeBtn.classList.toggle('active', shape === 'circle');
     els.ellipseShapeBtn.classList.toggle('active', shape === 'ellipse');
     els.calibrationHelp.textContent = shape === 'rect'
       ? 'Перетягни прямокутник на антену, потягни маркер у куті для зміни розміру й постав галочку.'
-      : 'Перетягни еліпс на антену, потягни маркер у куті для зміни розміру й постав галочку.';
+      : shape === 'circle'
+        ? 'Перетягни коло на антену, потягни маркер для рівномірного розміру й постав галочку.'
+        : 'Перетягни еліпс на антену, потягни маркер у куті для зміни розміру й постав галочку.';
     resetCalibration(false);
     els.shapeMenu.classList.add('hidden');
     els.addFigureBtn.setAttribute('aria-expanded', 'false');
@@ -178,6 +182,7 @@
       rx: els.overlay.width * .32,
       ry: els.overlay.height * .32
     };
+    if (state.shape === 'circle') state.figure.ry = state.figure.rx = Math.min(state.figure.rx, state.figure.ry);
   }
 
   function toggleFigureMenu() {
@@ -197,6 +202,10 @@
         { x: f.cx + f.rx, y: f.cy + f.ry },
         { x: f.cx - f.rx, y: f.cy + f.ry }
       ];
+    }
+    if (state.shape === 'circle') {
+      const r = (f.rx + f.ry) / 2;
+      f.rx = f.ry = r;
     }
     return [
       { x: f.cx, y: f.cy - f.ry },
@@ -350,7 +359,7 @@
 
   function cvReady() {
     const opencv = window.cv;
-    return !!(opencv && opencv.Mat && opencv.calcOpticalFlowPyrLK && opencv.cvtColor);
+    return !!(opencv && opencv.Mat && opencv.calcOpticalFlowPyrLK && opencv.goodFeaturesToTrack && opencv.cvtColor);
   }
 
   function imageDataToGray(img) {
@@ -367,17 +376,35 @@
     state.cvPrevPoints?.delete();
     state.cvPrevGray = null;
     state.cvPrevPoints = null;
+    state.cvFeatureMode = false;
   }
 
   function initializeCvTracking(img) {
     if (!cvReady() || !img || state.anchors.length !== 4) return false;
     releaseCvTracking();
     state.cvPrevGray = imageDataToGray(img);
-    const points = state.anchors.flatMap(p => {
-      const a = videoToAnalysis(p);
-      return [a.x, a.y];
-    });
-    state.cvPrevPoints = cv.matFromArray(4, 1, cv.CV_32FC2, points);
+    const corners = new cv.Mat();
+    const points = [];
+    try {
+      cv.goodFeaturesToTrack(state.cvPrevGray, corners, 80, 0.01, 8);
+      const values = corners.data32F;
+      for (let i = 0; i < corners.rows; i++) {
+        const p = analysisToVideo({ x: values[i * 2], y: values[i * 2 + 1] });
+        if (insideAntenna(p)) points.push({ x: values[i * 2], y: values[i * 2 + 1] });
+      }
+    } finally {
+      corners.delete();
+    }
+    if (points.length < 6) {
+      points.length = 0;
+      state.anchors.forEach(p => {
+        const a = videoToAnalysis(p);
+        points.push({ x: a.x, y: a.y });
+      });
+    }
+    state.cvFeatureMode = points.length > 4;
+    const flat = points.flatMap(p => [p.x, p.y]);
+    state.cvPrevPoints = cv.matFromArray(points.length, 1, cv.CV_32FC2, flat);
     return true;
   }
 
@@ -432,20 +459,30 @@
         0.0001
       );
       const values = nextPoints.data32F;
-      const ok = [];
-      for (let i = 0; i < 4; i++) {
-        const good = status.data[i] === 1 && Number.isFinite(values[i * 2]) && Number.isFinite(values[i * 2 + 1]);
-        ok.push(good);
+      const prev = state.cvPrevPoints.data32F;
+      const matches = [];
+      for (let i = 0; i < state.cvPrevPoints.rows; i++) {
+        const flowError = error.data32F?.[i] ?? 0;
+        if (status.data[i] !== 1 || flowError > 65) continue;
+        const px = prev[i * 2], py = prev[i * 2 + 1];
+        const nx = values[i * 2], ny = values[i * 2 + 1];
+        if (![px, py, nx, ny].every(Number.isFinite)) continue;
+        matches.push({ px, py, nx, ny });
       }
-      if (ok.filter(Boolean).length < 3) {
+      if (matches.length < 4) {
         releaseCvTracking();
         return false;
       }
-      const updated = state.anchors.map((old, i) => {
-        if (!ok[i]) return old;
-        return analysisToVideo({ x: values[i * 2], y: values[i * 2 + 1] });
+      const transform = robustSimilarity(matches);
+      if (!transform || transform.scale < .72 || transform.scale > 1.38) {
+        releaseCvTracking();
+        return false;
+      }
+      const updated = state.anchors.map(p => {
+        const a = videoToAnalysis(p);
+        return analysisToVideo(applySimilarity(a, transform));
       });
-      state.anchors = updated;
+      state.anchors = stabilizeAnchors(updated);
       state.cvPrevGray.delete();
       state.cvPrevPoints.delete();
       state.cvPrevGray = nextGray;
@@ -464,6 +501,63 @@
       status?.delete();
       error?.delete();
     }
+  }
+
+  function robustSimilarity(matches) {
+    const prevCenter = centroid(matches.map(m => ({ x: m.px, y: m.py })));
+    const nextCenter = centroid(matches.map(m => ({ x: m.nx, y: m.ny })));
+    const scales = [], angles = [];
+    for (const m of matches) {
+      const ax = m.px - prevCenter.x, ay = m.py - prevCenter.y;
+      const bx = m.nx - nextCenter.x, by = m.ny - nextCenter.y;
+      const an = Math.hypot(ax, ay), bn = Math.hypot(bx, by);
+      if (an < 2 || bn < 2) continue;
+      scales.push(bn / an);
+      angles.push(Math.atan2(ax * by - ay * bx, ax * bx + ay * by));
+    }
+    if (scales.length < 3) return null;
+    const scale = median(scales);
+    const angle = median(angles);
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    return {
+      scale,
+      angle,
+      tx: nextCenter.x - scale * (cos * prevCenter.x - sin * prevCenter.y),
+      ty: nextCenter.y - scale * (sin * prevCenter.x + cos * prevCenter.y)
+    };
+  }
+
+  function applySimilarity(p, t) {
+    return {
+      x: t.scale * (Math.cos(t.angle) * p.x - Math.sin(t.angle) * p.y) + t.tx,
+      y: t.scale * (Math.sin(t.angle) * p.x + Math.cos(t.angle) * p.y) + t.ty
+    };
+  }
+
+  function centroid(points) {
+    return points.reduce((s, p) => ({ x: s.x + p.x / points.length, y: s.y + p.y / points.length }), { x: 0, y: 0 });
+  }
+
+  function median(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  }
+
+  function stabilizeAnchors(anchors) {
+    if (state.shape !== 'circle') {
+      return anchors.map((p, i) => ({
+        x: state.anchors[i].x * .72 + p.x * .28,
+        y: state.anchors[i].y * .72 + p.y * .28
+      }));
+    }
+    const center = centroid(anchors);
+    const radius = median(anchors.map(p => Math.hypot(p.x - center.x, p.y - center.y)));
+    return [
+      { x: center.x, y: center.y - radius },
+      { x: center.x + radius, y: center.y },
+      { x: center.x, y: center.y + radius },
+      { x: center.x - radius, y: center.y }
+    ];
   }
 
   function trackAnchorsWithTemplates(img) {
@@ -495,7 +589,7 @@
         y: state.anchors[k].y * 0.65 + candidate.y * 0.35
       });
     }
-    state.anchors = updated;
+    state.anchors = stabilizeAnchors(updated);
     rebuildGrid();
   }
 
@@ -588,7 +682,7 @@
       laser_y_px: round2(state.laser.y),
       laser_x_norm: round6(state.laser.nx),
       laser_y_norm: round6(state.laser.ny),
-      antenna_shape: state.shape === 'ellipse' ? 'circle_ellipse' : 'rectangle',
+      antenna_shape: state.shape === 'circle' ? 'circle' : state.shape === 'ellipse' ? 'ellipse' : 'rectangle',
       confirmation: 'manual'
     };
     state.done.add(id);
@@ -711,6 +805,10 @@
     if (state.shape === 'rect') {
       ctx.beginPath();
       ctx.rect(f.cx - f.rx, f.cy - f.ry, f.rx * 2, f.ry * 2);
+    } else if (state.shape === 'circle') {
+      ctx.beginPath();
+      const radius = Math.min(f.rx, f.ry);
+      ctx.arc(f.cx, f.cy, radius, 0, Math.PI * 2);
     } else {
       ctx.beginPath();
       ctx.ellipse(f.cx, f.cy, f.rx, f.ry, 0, 0, Math.PI * 2);
@@ -734,8 +832,9 @@
     if (state.shape === 'rect') {
       return Math.abs(p.x - f.cx) <= f.rx && Math.abs(p.y - f.cy) <= f.ry;
     }
-    const nx = (p.x - f.cx) / f.rx;
-    const ny = (p.y - f.cy) / f.ry;
+    const radius = state.shape === 'circle' ? Math.min(f.rx, f.ry) : null;
+    const nx = (p.x - f.cx) / (radius || f.rx);
+    const ny = (p.y - f.cy) / (radius || f.ry);
     return nx * nx + ny * ny <= 1;
   }
 
@@ -771,8 +870,15 @@
       state.figure.cx = clamp(base.cx + d.x, base.rx, els.overlay.width - base.rx);
       state.figure.cy = clamp(base.cy + d.y, base.ry, els.overlay.height - base.ry);
     } else {
-      state.figure.rx = clamp(base.rx + d.x, minRadius, els.overlay.width * .48);
-      state.figure.ry = clamp(base.ry + d.y, minRadius, els.overlay.height * .48);
+      const nextRx = clamp(base.rx + d.x, minRadius, els.overlay.width * .48);
+      const nextRy = clamp(base.ry + d.y, minRadius, els.overlay.height * .48);
+      if (state.shape === 'circle') {
+        const radius = clamp((nextRx + nextRy) / 2, minRadius, Math.min(els.overlay.width, els.overlay.height) * .48);
+        state.figure.rx = state.figure.ry = radius;
+      } else {
+        state.figure.rx = nextRx;
+        state.figure.ry = nextRy;
+      }
       state.figure.cx = clamp(base.cx, state.figure.rx, els.overlay.width - state.figure.rx);
       state.figure.cy = clamp(base.cy, state.figure.ry, els.overlay.height - state.figure.ry);
     }
@@ -939,6 +1045,7 @@
   els.stopCameraBtn.addEventListener('click', stopCamera);
   els.addFigureBtn.addEventListener('click', toggleFigureMenu);
   els.rectShapeBtn.addEventListener('click', () => setShape('rect'));
+  els.circleShapeBtn.addEventListener('click', () => setShape('circle'));
   els.ellipseShapeBtn.addEventListener('click', () => setShape('ellipse'));
   els.figureLockInput.addEventListener('change', () => lockFigure(els.figureLockInput.checked));
   els.rowsInput.addEventListener('change', rebuildGrid);
