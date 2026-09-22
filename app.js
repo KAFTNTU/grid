@@ -39,11 +39,13 @@
     done: new Set(loadJSON('tn_done', [])),
     lastAnalysisAt: 0,
     lastTrackAt: 0,
+    lastContourAt: 0,
     toastTimer: null,
     pointerEdit: null,
     cvPrevGray: null,
     cvPrevPoints: null,
-    cvFeatureMode: false
+    cvFeatureMode: false,
+    kalman: null
   };
 
   function loadJSON(key, fallback) {
@@ -150,6 +152,7 @@
     state.calibrated = false;
     state.anchors = [];
     state.anchorTemplates = [];
+    state.kalman = null;
     state.grid = [];
     state.laser = null;
     state.active = null;
@@ -228,6 +231,7 @@
       state.calibrated = true;
       state.figureLocked = true;
       state.mode = 'manual';
+      initKalman(state.anchors);
       els.calibrationHint.classList.add('hidden');
       captureAnchorTemplates();
       rebuildGrid();
@@ -238,6 +242,7 @@
       state.anchors = [];
       state.calibration = [];
       state.anchorTemplates = [];
+      state.kalman = null;
       state.grid = [];
       state.active = null;
       updateCalibrationHint();
@@ -250,6 +255,7 @@
     state.calibration = [];
     state.anchors = [];
     state.anchorTemplates = [];
+    state.kalman = null;
     state.calibrating = false;
     state.calibrated = false;
     state.figureLocked = false;
@@ -543,21 +549,69 @@
     return sorted[Math.floor(sorted.length / 2)];
   }
 
-  function stabilizeAnchors(anchors) {
-    if (state.shape !== 'circle') {
-      return anchors.map((p, i) => ({
-        x: state.anchors[i].x * .72 + p.x * .28,
-        y: state.anchors[i].y * .72 + p.y * .28
-      }));
-    }
+  function shapeParams(anchors) {
     const center = centroid(anchors);
-    const radius = median(anchors.map(p => Math.hypot(p.x - center.x, p.y - center.y)));
+    if (state.shape === 'rect') {
+      const width = (Math.hypot(anchors[1].x - anchors[0].x, anchors[1].y - anchors[0].y) + Math.hypot(anchors[2].x - anchors[3].x, anchors[2].y - anchors[3].y)) / 2;
+      const height = (Math.hypot(anchors[3].x - anchors[0].x, anchors[3].y - anchors[0].y) + Math.hypot(anchors[2].x - anchors[1].x, anchors[2].y - anchors[1].y)) / 2;
+      return { cx: center.x, cy: center.y, rx: width / 2, ry: height / 2 };
+    }
+    let rx = Math.hypot(anchors[1].x - anchors[3].x, anchors[1].y - anchors[3].y) / 2;
+    let ry = Math.hypot(anchors[2].x - anchors[0].x, anchors[2].y - anchors[0].y) / 2;
+    if (state.shape === 'circle') rx = ry = (rx + ry) / 2;
+    return { cx: center.x, cy: center.y, rx, ry };
+  }
+
+  function anchorsFromParams(p) {
+    if (state.shape === 'rect') {
+      return [
+        { x: p.cx - p.rx, y: p.cy - p.ry },
+        { x: p.cx + p.rx, y: p.cy - p.ry },
+        { x: p.cx + p.rx, y: p.cy + p.ry },
+        { x: p.cx - p.rx, y: p.cy + p.ry }
+      ];
+    }
     return [
-      { x: center.x, y: center.y - radius },
-      { x: center.x + radius, y: center.y },
-      { x: center.x, y: center.y + radius },
-      { x: center.x - radius, y: center.y }
+      { x: p.cx, y: p.cy - p.ry },
+      { x: p.cx + p.rx, y: p.cy },
+      { x: p.cx, y: p.cy + p.ry },
+      { x: p.cx - p.rx, y: p.cy }
     ];
+  }
+
+  function initKalman(anchors) {
+    const p = shapeParams(anchors);
+    state.kalman = {
+      ...p,
+      vx: 0, vy: 0, vrx: 0, vry: 0,
+      variance: { cx: 4, cy: 4, rx: 4, ry: 4 }
+    };
+  }
+
+  function kalmanAnchors(measured) {
+    if (!state.kalman) initKalman(measured);
+    const m = shapeParams(measured);
+    const next = { ...state.kalman, variance: { ...state.kalman.variance } };
+    for (const key of ['cx', 'cy', 'rx', 'ry']) {
+      const velocityKey = `v${key}`;
+      const prediction = state.kalman[key] + state.kalman[velocityKey];
+      const processNoise = key === 'cx' || key === 'cy' ? 1.5 : 0.8;
+      const measurementNoise = key === 'rx' || key === 'ry' ? 8 : 5;
+      const variance = state.kalman.variance[key] + processNoise;
+      const gain = variance / (variance + measurementNoise);
+      next[key] = prediction + gain * (m[key] - prediction);
+      next[velocityKey] = state.kalman[velocityKey] * .82 + (next[key] - state.kalman[key]) * .18;
+      next.variance[key] = (1 - gain) * variance;
+    }
+    if (state.shape === 'circle') next.rx = next.ry = (next.rx + next.ry) / 2;
+    next.rx = Math.max(12, next.rx);
+    next.ry = Math.max(12, next.ry);
+    state.kalman = next;
+    return anchorsFromParams(next);
+  }
+
+  function stabilizeAnchors(anchors) {
+    return kalmanAnchors(anchors);
   }
 
   function trackAnchorsWithTemplates(img) {
@@ -631,6 +685,90 @@
     }
     const p = analysisToVideo(sw ? { x: sx/sw, y: sy/sw } : best);
     return { x: p.x, y: p.y, nx: p.x / els.overlay.width, ny: p.y / els.overlay.height };
+  }
+
+  function refineContourWithOpenCv(img) {
+    if (!cvReady() || !state.calibrated || state.anchors.length !== 4) return;
+    const current = state.anchors.map(videoToAnalysis);
+    const pad = Math.max(12, Math.round(Math.min(img.width, img.height) * .06));
+    const x0 = clamp(Math.floor(Math.min(...current.map(p => p.x)) - pad), 0, img.width - 2);
+    const y0 = clamp(Math.floor(Math.min(...current.map(p => p.y)) - pad), 0, img.height - 2);
+    const x1 = clamp(Math.ceil(Math.max(...current.map(p => p.x)) + pad), x0 + 2, img.width);
+    const y1 = clamp(Math.ceil(Math.max(...current.map(p => p.y)) + pad), y0 + 2, img.height);
+    const rect = new cv.Rect(x0, y0, x1 - x0, y1 - y0);
+    let gray = null, roi = null, blurred = null, edges = null, contours = null, hierarchy = null;
+    try {
+      gray = imageDataToGray(img);
+      roi = gray.roi(rect);
+      blurred = new cv.Mat();
+      edges = new cv.Mat();
+      cv.GaussianBlur(roi, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+      cv.Canny(blurred, edges, 42, 110);
+      contours = new cv.MatVector();
+      hierarchy = new cv.Mat();
+      cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+      const params = shapeParams(state.anchors);
+      const expectedAreaVideo = state.shape === 'rect' ? params.rx * params.ry * 4 : Math.PI * params.rx * params.ry;
+      const videoToAnalysisScale = els.analysisCanvas.width / els.overlay.width;
+      const expectedArea = expectedAreaVideo * videoToAnalysisScale * videoToAnalysisScale;
+      const expectedCenter = centroid(current);
+      let best = null;
+      for (let i = 0; i < contours.size(); i++) {
+        const contour = contours.get(i);
+        const area = Math.abs(cv.contourArea(contour));
+        const perimeter = cv.arcLength(contour, true);
+        if (area < expectedArea * .22 || area > expectedArea * 2.8 || perimeter < 20) {
+          contour.delete();
+          continue;
+        }
+        const moments = cv.moments(contour, false);
+        if (!moments.m00) {
+          contour.delete();
+          continue;
+        }
+        const center = { x: moments.m10 / moments.m00 + x0, y: moments.m01 / moments.m00 + y0 };
+        const distance = Math.hypot(center.x - expectedCenter.x, center.y - expectedCenter.y);
+        const circularity = perimeter ? (4 * Math.PI * area) / (perimeter * perimeter) : 0;
+        const areaScore = Math.exp(-Math.abs(Math.log(area / expectedArea)));
+        const centerScore = Math.exp(-distance / Math.max(18, Math.sqrt(expectedArea) * .8));
+        const shapeScore = state.shape === 'circle' ? clamp(circularity / .78, 0, 1) : state.shape === 'ellipse' ? clamp(circularity / .62, 0, 1) : .65;
+        const score = areaScore * .45 + centerScore * .35 + shapeScore * .20;
+        if (!best || score > best.score) {
+          best?.contour.delete();
+          best = { score, contour, area, center, rect: cv.boundingRect(contour) };
+        } else {
+          contour.delete();
+        }
+      }
+
+      if (!best || best.score < .52) return;
+      const b = best.rect;
+      const bx = b.x + x0, by = b.y + y0;
+      let cx = best.center.x, cy = best.center.y;
+      let rx = b.width / 2, ry = b.height / 2;
+      if (state.shape === 'circle') rx = ry = (rx + ry) / 2;
+      const measured = state.shape === 'rect'
+        ? [{ x: bx, y: by }, { x: bx + b.width, y: by }, { x: bx + b.width, y: by + b.height }, { x: bx, y: by + b.height }].map(analysisToVideo)
+        : [{ x: cx, y: cy - ry }, { x: cx + rx, y: cy }, { x: cx, y: cy + ry }, { x: cx - rx, y: cy }].map(analysisToVideo);
+      state.anchors = stabilizeAnchors(measured);
+      initializeCvTracking(img);
+      rebuildGrid();
+    } catch (err) {
+      console.warn('Contour refinement failed', err);
+    } finally {
+      gray?.delete();
+      roi?.delete();
+      blurred?.delete();
+      edges?.delete();
+      hierarchy?.delete();
+      if (contours) {
+        for (let i = 0; i < contours.size(); i++) {
+          try { contours.get(i).delete(); } catch {}
+        }
+        contours.delete();
+      }
+    }
   }
 
   function insideAntenna(p) {
@@ -1022,6 +1160,10 @@
         if (ts - state.lastTrackAt > 360) {
           state.lastTrackAt = ts;
           trackAnchors(img);
+        }
+        if (ts - state.lastContourAt > 620) {
+          state.lastContourAt = ts;
+          refineContourWithOpenCv(img);
         }
         state.laser = detectLaser(img);
         state.active = nearestGridPoint(state.laser);
