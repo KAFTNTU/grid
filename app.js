@@ -66,6 +66,48 @@
     localStorage.setItem('tn_show_labels', JSON.stringify(state.showLabels));
   }
 
+  function saveCalibration() {
+    if (!state.figureLocked || state.anchors.length !== 4 || !els.overlay.width || !els.overlay.height) return;
+    const p = shapeParams(state.anchors);
+    localStorage.setItem('tn_calibration', JSON.stringify({
+      shape: state.shape,
+      params: {
+        cx: p.cx / els.overlay.width,
+        cy: p.cy / els.overlay.height,
+        rx: p.rx / els.overlay.width,
+        ry: p.ry / els.overlay.height
+      }
+    }));
+  }
+
+  function clearSavedCalibration() {
+    localStorage.removeItem('tn_calibration');
+  }
+
+  function restoreCalibration() {
+    const saved = loadJSON('tn_calibration', null);
+    if (!saved || saved.shape !== state.shape || !saved.params || !els.overlay.width || !els.overlay.height) return false;
+    const p = {
+      cx: saved.params.cx * els.overlay.width,
+      cy: saved.params.cy * els.overlay.height,
+      rx: saved.params.rx * els.overlay.width,
+      ry: saved.params.ry * els.overlay.height
+    };
+    if (!Object.values(p).every(Number.isFinite) || p.rx < 12 || p.ry < 12) return false;
+    state.figure = { ...p };
+    state.anchors = anchorsFromParams(p);
+    state.calibration = state.anchors.map(point => ({ ...point }));
+    state.calibrating = false;
+    state.calibrated = true;
+    state.figureLocked = true;
+    state.mode = 'manual';
+    initKalman(state.anchors);
+    if (els.figureLockInput) els.figureLockInput.checked = true;
+    els.calibrationHint.classList.add('hidden');
+    rebuildGrid();
+    return true;
+  }
+
   function toast(msg) {
     els.toast.textContent = msg;
     els.toast.classList.remove('hidden');
@@ -170,6 +212,8 @@
       els.startCameraBtn.disabled = true;
       els.stopCameraBtn.disabled = false;
       state.running = true;
+      if (restoreCalibration()) captureAnchorTemplates();
+      updateUI();
       requestAnimationFrame(loop);
     } catch (err) {
       if (state.stream) state.stream.getTracks().forEach(t => t.stop());
@@ -189,17 +233,13 @@
     els.stopCameraBtn.disabled = true;
     els.cameraPlaceholder.classList.remove('hidden');
     els.cameraFrame.classList.remove('live');
-    els.figureLockInput.disabled = true;
-    els.figureLockInput.checked = false;
+    els.figureLockInput.disabled = !state.figure;
+    els.figureLockInput.checked = state.figureLocked;
     els.addFigureBtn.disabled = true;
     els.shapeMenu.classList.add('hidden');
     els.addFigureBtn.setAttribute('aria-expanded', 'false');
-    state.figureLocked = false;
-    state.calibrated = false;
-    state.anchors = [];
     state.anchorTemplates = [];
     state.kalman = null;
-    state.grid = [];
     state.laser = null;
     state.active = null;
     state.activeSeenAt = 0;
@@ -282,6 +322,7 @@
       els.calibrationHint.classList.add('hidden');
       captureAnchorTemplates();
       rebuildGrid();
+      saveCalibration();
       toast('Фігуру зафіксовано. Сітка стежить за антеною.');
     } else {
       state.figureLocked = false;
@@ -293,6 +334,7 @@
       state.grid = [];
       state.active = null;
       state.activeSeenAt = 0;
+      clearSavedCalibration();
       updateCalibrationHint();
       updateUI();
     }
@@ -311,6 +353,7 @@
     state.grid = [];
     state.active = null;
     state.activeSeenAt = 0;
+    clearSavedCalibration();
     if (els.figureLockInput) els.figureLockInput.checked = false;
     els.calibrationHint.classList.add('hidden');
     ensureFigure();
