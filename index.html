@@ -28,14 +28,6 @@
             <input id="figureLockInput" type="checkbox" disabled />
             <span>Фікс</span>
           </label>
-          <label class="lock-chip color-chip" title="Запам’ятати колір антени при фіксації">
-            <input id="antennaColorInput" type="checkbox" />
-            <span>Колір</span>
-          </label>
-          <label class="lock-chip label-chip" title="Показувати номери точок">
-            <input id="showLabelsInput" type="checkbox" />
-            <span>Номери</span>
-          </label>
         </div>
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
@@ -50,6 +42,16 @@
         </div>
         <div id="calibrationHint" class="calibration-hint hidden"></div>
         <p id="calibrationHelp" class="hidden"></p>
+      </div>
+      <div class="camera-options" aria-label="Налаштування камери">
+        <label class="lock-chip color-chip" title="Запам’ятати колір антени при фіксації">
+          <input id="antennaColorInput" type="checkbox" />
+          <span>Колір антени</span>
+        </label>
+        <label class="lock-chip label-chip" title="Показувати номери точок">
+          <input id="showLabelsInput" type="checkbox" />
+          <span>Номери точок</span>
+        </label>
       </div>
       <canvas id="analysisCanvas" class="hidden"></canvas>
 
