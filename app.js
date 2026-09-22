@@ -7,7 +7,7 @@
     cameraPlaceholder: $('cameraPlaceholder'), calibrationHint: $('calibrationHint'), secureBadge: $('secureBadge'),
     startCameraBtn: $('startCameraBtn'), stopCameraBtn: $('stopCameraBtn'), currentPoint: $('currentPoint'), dockPoint: $('dockPoint'),
     laserStatus: $('laserStatus'), trackingStatus: $('trackingStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
-    rectShapeBtn: $('rectShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
+    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
     calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
@@ -40,7 +40,9 @@
     lastAnalysisAt: 0,
     lastTrackAt: 0,
     toastTimer: null,
-    pointerEdit: null
+    pointerEdit: null,
+    cvPrevGray: null,
+    cvPrevPoints: null
   };
 
   function loadJSON(key, fallback) {
@@ -75,6 +77,8 @@
       ? 'Перетягни прямокутник на антену, потягни маркер у куті для зміни розміру й постав галочку.'
       : 'Перетягни еліпс на антену, потягни маркер у куті для зміни розміру й постав галочку.';
     resetCalibration(false);
+    els.shapeMenu.classList.add('hidden');
+    els.addFigureBtn.setAttribute('aria-expanded', 'false');
     saveState();
   }
 
@@ -111,8 +115,8 @@
       els.analysisCanvas.width = 360;
       els.analysisCanvas.height = Math.max(180, Math.round(360 * vh / vw));
       els.cameraPlaceholder.classList.add('hidden');
-      ensureFigure();
-      els.figureLockInput.disabled = false;
+      els.addFigureBtn.disabled = false;
+      els.figureLockInput.disabled = !state.figure;
       els.startCameraBtn.disabled = true;
       els.stopCameraBtn.disabled = false;
       state.running = true;
@@ -125,6 +129,7 @@
 
   function stopCamera() {
     state.running = false;
+    releaseCvTracking();
     if (state.stream) state.stream.getTracks().forEach(t => t.stop());
     state.stream = null;
     els.video.srcObject = null;
@@ -134,6 +139,9 @@
     els.cameraFrame.classList.remove('live');
     els.figureLockInput.disabled = true;
     els.figureLockInput.checked = false;
+    els.addFigureBtn.disabled = true;
+    els.shapeMenu.classList.add('hidden');
+    els.addFigureBtn.setAttribute('aria-expanded', 'false');
     state.figureLocked = false;
     state.calibrated = false;
     state.anchors = [];
@@ -170,6 +178,13 @@
       rx: els.overlay.width * .32,
       ry: els.overlay.height * .32
     };
+  }
+
+  function toggleFigureMenu() {
+    if (!state.running) return toast('Спочатку увімкніть камеру.');
+    if (state.figureLocked) resetCalibration(false);
+    const opened = els.shapeMenu.classList.toggle('hidden') === false;
+    els.addFigureBtn.setAttribute('aria-expanded', String(opened));
   }
 
   function figureAnchors() {
@@ -222,6 +237,7 @@
   }
 
   function resetCalibration(showToast = true) {
+    releaseCvTracking();
     state.calibration = [];
     state.anchors = [];
     state.anchorTemplates = [];
@@ -234,6 +250,7 @@
     if (els.figureLockInput) els.figureLockInput.checked = false;
     els.calibrationHint.classList.add('hidden');
     ensureFigure();
+    if (els.figureLockInput) els.figureLockInput.disabled = !state.figure;
     if (showToast) toast('Калібрування скинуто.');
     updateUI();
   }
@@ -328,6 +345,40 @@
     const img = captureAnalysisFrame();
     if (!img || !state.anchors.length) return;
     state.anchorTemplates = state.anchors.map(a => makeTemplate(img, videoToAnalysis(a), 4));
+    initializeCvTracking(img);
+  }
+
+  function cvReady() {
+    const opencv = window.cv;
+    return !!(opencv && opencv.Mat && opencv.calcOpticalFlowPyrLK && opencv.cvtColor);
+  }
+
+  function imageDataToGray(img) {
+    const rgba = new cv.Mat(img.height, img.width, cv.CV_8UC4);
+    rgba.data.set(img.data);
+    const gray = new cv.Mat();
+    cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
+    rgba.delete();
+    return gray;
+  }
+
+  function releaseCvTracking() {
+    state.cvPrevGray?.delete();
+    state.cvPrevPoints?.delete();
+    state.cvPrevGray = null;
+    state.cvPrevPoints = null;
+  }
+
+  function initializeCvTracking(img) {
+    if (!cvReady() || !img || state.anchors.length !== 4) return false;
+    releaseCvTracking();
+    state.cvPrevGray = imageDataToGray(img);
+    const points = state.anchors.flatMap(p => {
+      const a = videoToAnalysis(p);
+      return [a.x, a.y];
+    });
+    state.cvPrevPoints = cv.matFromArray(4, 1, cv.CV_32FC2, points);
+    return true;
   }
 
   function makeTemplate(img, p, radius) {
@@ -352,6 +403,70 @@
 
   function trackAnchors(img) {
     if (!state.calibrated || state.mode !== 'manual' || state.anchorTemplates.length !== 4) return;
+    if (cvReady() && trackAnchorsWithOpenCv(img)) return;
+    trackAnchorsWithTemplates(img);
+  }
+
+  function trackAnchorsWithOpenCv(img) {
+    if (!state.cvPrevGray || !state.cvPrevPoints) {
+      return initializeCvTracking(img);
+    }
+    let nextGray = null, nextPoints = null, status = null, error = null;
+    try {
+      nextGray = imageDataToGray(img);
+      nextPoints = new cv.Mat();
+      status = new cv.Mat();
+      error = new cv.Mat();
+      const criteria = new cv.TermCriteria(cv.TermCriteria_COUNT + cv.TermCriteria_EPS, 30, 0.01);
+      cv.calcOpticalFlowPyrLK(
+        state.cvPrevGray,
+        nextGray,
+        state.cvPrevPoints,
+        nextPoints,
+        status,
+        error,
+        new cv.Size(21, 21),
+        3,
+        criteria,
+        0,
+        0.0001
+      );
+      const values = nextPoints.data32F;
+      const ok = [];
+      for (let i = 0; i < 4; i++) {
+        const good = status.data[i] === 1 && Number.isFinite(values[i * 2]) && Number.isFinite(values[i * 2 + 1]);
+        ok.push(good);
+      }
+      if (ok.filter(Boolean).length < 3) {
+        releaseCvTracking();
+        return false;
+      }
+      const updated = state.anchors.map((old, i) => {
+        if (!ok[i]) return old;
+        return analysisToVideo({ x: values[i * 2], y: values[i * 2 + 1] });
+      });
+      state.anchors = updated;
+      state.cvPrevGray.delete();
+      state.cvPrevPoints.delete();
+      state.cvPrevGray = nextGray;
+      state.cvPrevPoints = nextPoints;
+      nextGray = null;
+      nextPoints = null;
+      rebuildGrid();
+      return true;
+    } catch (err) {
+      console.warn('OpenCV tracking failed', err);
+      releaseCvTracking();
+      return false;
+    } finally {
+      nextGray?.delete();
+      nextPoints?.delete();
+      status?.delete();
+      error?.delete();
+    }
+  }
+
+  function trackAnchorsWithTemplates(img) {
     const updated = [];
     for (let k = 0; k < 4; k++) {
       const tpl = state.anchorTemplates[k];
@@ -822,10 +937,10 @@
 
   els.startCameraBtn.addEventListener('click', startCamera);
   els.stopCameraBtn.addEventListener('click', stopCamera);
+  els.addFigureBtn.addEventListener('click', toggleFigureMenu);
   els.rectShapeBtn.addEventListener('click', () => setShape('rect'));
   els.ellipseShapeBtn.addEventListener('click', () => setShape('ellipse'));
   els.figureLockInput.addEventListener('change', () => lockFigure(els.figureLockInput.checked));
-  els.resetCalibrationBtn.addEventListener('click', () => resetCalibration(true));
   els.rowsInput.addEventListener('change', rebuildGrid);
   els.colsInput.addEventListener('change', rebuildGrid);
   els.laserThreshold.addEventListener('input', () => els.thresholdValue.textContent = els.laserThreshold.value);

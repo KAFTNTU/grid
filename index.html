@@ -8,42 +8,26 @@
   <title>Навігатор тахеометра</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://docs.opencv.org/4.x/opencv.js" async></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <main class="shell app-grid">
     <section class="camera-card card panel-strong">
-      <div class="camera-toolbar">
-        <div class="camera-toolbar-head">
-          <div>
-            <div class="eyebrow">Антена на екрані</div>
-            <strong>Наклади фігуру на антену</strong>
+      <div class="camera-frame" id="cameraFrame">
+        <div class="camera-tools" aria-label="Керування фігурою">
+          <div class="figure-picker">
+            <button id="addFigureBtn" class="add-figure-btn" type="button" aria-expanded="false" aria-label="Додати фігуру" disabled>＋</button>
+            <div id="shapeMenu" class="shape-menu hidden" role="menu" aria-label="Фігура антени">
+              <button id="rectShapeBtn" class="shape-choice" type="button" title="Прямокутник">▭</button>
+              <button id="ellipseShapeBtn" class="shape-choice" type="button" title="Еліпс">◯</button>
+            </div>
           </div>
-          <label class="toggle-card lock-toggle">
-            <span>Зафіксувати фігуру</span>
+          <label class="lock-chip" title="Зафіксувати фігуру">
             <input id="figureLockInput" type="checkbox" disabled />
+            <span>Фікс</span>
           </label>
         </div>
-        <div class="camera-toolbar-row">
-          <div class="segmented shape-segmented" role="group" aria-label="Форма фігури">
-            <button id="rectShapeBtn" class="seg">Прямокутник</button>
-            <button id="ellipseShapeBtn" class="seg active">Еліпс</button>
-          </div>
-          <div class="grid-two compact-gap grid-size-inline">
-            <label>Рядки
-              <input id="rowsInput" type="number" min="2" max="50" value="8" inputmode="numeric" />
-            </label>
-            <label>Колонки
-              <input id="colsInput" type="number" min="2" max="50" value="8" inputmode="numeric" />
-            </label>
-          </div>
-        </div>
-        <div class="button-stack camera-toolbar-actions">
-          <button id="resetCalibrationBtn" class="btn ghost">Нова фігура</button>
-        </div>
-        <p id="calibrationHelp" class="help">Увімкни камеру, перетягни фігуру на антену, потягни маркер у куті для зміни розміру й постав галочку.</p>
-      </div>
-      <div class="camera-frame" id="cameraFrame">
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay"></canvas>
         <div id="cameraPlaceholder" class="camera-placeholder">
@@ -51,6 +35,7 @@
           <span>Натисніть «Увімкнути камеру»</span>
         </div>
         <div id="calibrationHint" class="calibration-hint hidden"></div>
+        <p id="calibrationHelp" class="hidden"></p>
       </div>
       <canvas id="analysisCanvas" class="hidden"></canvas>
 
@@ -82,13 +67,14 @@
     </section>
 
     <section class="card panel controls-panel">
-      <div class="card-head">
-        <div>
-          <div class="eyebrow">Відображення</div>
-          <h2>Сітка</h2>
-        </div>
+      <div class="grid-two compact-gap grid-size-settings">
+        <label>Рядки
+          <input id="rowsInput" type="number" min="2" max="50" value="8" inputmode="numeric" />
+        </label>
+        <label>Колонки
+          <input id="colsInput" type="number" min="2" max="50" value="8" inputmode="numeric" />
+        </label>
       </div>
-
       <div class="grid-two compact-gap toggle-grid">
         <label class="toggle-card">
           <span>Показувати лінії сітки</span>
@@ -100,27 +86,17 @@
         </label>
       </div>
 
-      <p class="help">Фігуру налаштовуй безпосередньо над відео. Після фіксації сітка рухається разом з антеною.</p>
     </section>
 
-    <section class="card panel">
-      <div class="card-head">
-        <div>
-          <div class="eyebrow">Розпізнавання</div>
-          <h2>Лазерна пляма</h2>
-        </div>
+    <section class="card panel laser-panel" aria-label="Налаштування лазера">
+      <select id="laserMode" aria-label="Колір лазера">
+        <option value="red" selected>Червоний</option>
+        <option value="bright">Білий</option>
+      </select>
+      <div class="laser-slider">
+        <input id="laserThreshold" type="range" min="120" max="250" value="205" aria-label="Чутливість лазера" />
+        <output id="thresholdValue">205</output>
       </div>
-
-      <label>Тип плями
-        <select id="laserMode">
-          <option value="red" selected>Червона</option>
-          <option value="bright">Яскрава біла</option>
-        </select>
-      </label>
-      <label>Поріг чутливості <span id="thresholdValue">205</span>
-        <input id="laserThreshold" type="range" min="120" max="250" value="205" />
-      </label>
-      <p class="help">Якщо пляма губиться — зменште поріг. Якщо програма ловить відблиски — збільшіть його.</p>
     </section>
 
     <section class="card panel journal-panel">
