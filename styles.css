@@ -45,6 +45,14 @@ h1,h2,p{margin:0}
 .camera-head{margin-bottom:12px}
 .status-compact{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .camera-card{padding:12px}
+.camera-toolbar{display:grid;gap:10px;margin-bottom:12px;padding:13px;border:1px solid #303945;border-radius:18px;background:linear-gradient(180deg,#1b2027,#13161b)}
+.camera-toolbar-head,.camera-toolbar-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.camera-toolbar-head strong{font-size:16px}
+.camera-toolbar-row .shape-segmented{flex:1}
+.grid-size-inline{min-width:230px}
+.camera-toolbar .toggle-card{margin:0;min-width:190px}
+.camera-toolbar-actions{margin-top:0}
+.camera-toolbar-actions .btn{width:100%}
 .camera-frame{position:relative;width:100%;min-height:48vh;background:#060709;border-radius:18px;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid #242a31}
 video{display:block;width:100%;height:auto;max-height:68vh;background:#030405}
 #overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
@@ -114,6 +122,9 @@ summary{cursor:pointer;color:#dfe5ec;font-weight:600}
   .hero-stats{grid-template-columns:1fr}
   .grid-two{grid-template-columns:1fr}
   .status-compact{justify-content:flex-start}
+  .camera-toolbar-head,.camera-toolbar-row{align-items:stretch;flex-direction:column}
+  .grid-size-inline{min-width:0}
+  .camera-toolbar .toggle-card{min-width:0}
 }
 @media (min-width:860px){
   .app-grid{grid-template-columns:1.18fr .82fr}

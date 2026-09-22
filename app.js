@@ -7,8 +7,7 @@
     cameraPlaceholder: $('cameraPlaceholder'), calibrationHint: $('calibrationHint'), secureBadge: $('secureBadge'),
     startCameraBtn: $('startCameraBtn'), stopCameraBtn: $('stopCameraBtn'), currentPoint: $('currentPoint'), dockPoint: $('dockPoint'),
     laserStatus: $('laserStatus'), trackingStatus: $('trackingStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
-    rectShapeBtn: $('rectShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), calibrationMode: $('calibrationMode'),
-    manualCalibrateBtn: $('manualCalibrateBtn'), arucoBtn: $('arucoBtn'), contourBtn: $('contourBtn'), resetCalibrationBtn: $('resetCalibrationBtn'),
+    rectShapeBtn: $('rectShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
     calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
@@ -22,14 +21,15 @@
   const state = {
     stream: null,
     running: false,
-    shape: localStorage.getItem('tn_shape') || 'rect',
+    shape: localStorage.getItem('tn_shape') || 'ellipse',
     showLines: loadJSON('tn_show_lines', true),
     showLabels: loadJSON('tn_show_labels', true),
     mode: 'manual',
     calibration: [],
     calibrating: false,
-    arucoEnabled: false,
     calibrated: false,
+    figureLocked: false,
+    figure: null,
     anchors: [],
     anchorTemplates: [],
     grid: [],
@@ -40,7 +40,7 @@
     lastAnalysisAt: 0,
     lastTrackAt: 0,
     toastTimer: null,
-    detector: null
+    pointerEdit: null
   };
 
   function loadJSON(key, fallback) {
@@ -72,8 +72,8 @@
     els.rectShapeBtn.classList.toggle('active', shape === 'rect');
     els.ellipseShapeBtn.classList.toggle('active', shape === 'ellipse');
     els.calibrationHelp.textContent = shape === 'rect'
-      ? 'Для прямокутної антени: лівий верхній → правий верхній → правий нижній → лівий нижній.'
-      : 'Для круглої антени: верхня крайня точка → права → нижня → ліва. Усередині будується сітка з горизонтальних і вертикальних ліній, а точки — це перетини в межах кола / еліпса.';
+      ? 'Перетягни прямокутник на антену, потягни маркер у куті для зміни розміру й постав галочку.'
+      : 'Перетягни еліпс на антену, потягни маркер у куті для зміни розміру й постав галочку.';
     resetCalibration(false);
     saveState();
   }
@@ -111,6 +111,8 @@
       els.analysisCanvas.width = 360;
       els.analysisCanvas.height = Math.max(180, Math.round(360 * vh / vw));
       els.cameraPlaceholder.classList.add('hidden');
+      ensureFigure();
+      els.figureLockInput.disabled = false;
       els.startCameraBtn.disabled = true;
       els.stopCameraBtn.disabled = false;
       state.running = true;
@@ -130,6 +132,13 @@
     els.stopCameraBtn.disabled = true;
     els.cameraPlaceholder.classList.remove('hidden');
     els.cameraFrame.classList.remove('live');
+    els.figureLockInput.disabled = true;
+    els.figureLockInput.checked = false;
+    state.figureLocked = false;
+    state.calibrated = false;
+    state.anchors = [];
+    state.anchorTemplates = [];
+    state.grid = [];
     state.laser = null;
     state.active = null;
     updateStatus();
@@ -144,44 +153,72 @@
     };
   }
 
-  function beginManualCalibration() {
-    if (!state.running) return toast('Спочатку увімкніть камеру.');
-    state.mode = 'manual';
-    state.arucoEnabled = false;
-    state.calibration = [];
-    state.anchors = [];
-    state.anchorTemplates = [];
-    state.calibrating = true;
-    state.calibrated = false;
-    state.grid = [];
-    updateCalibrationHint();
-    updateUI();
-  }
-
   function updateCalibrationHint() {
-    if (!state.calibrating) {
+    if (!state.running || state.figureLocked) {
       els.calibrationHint.classList.add('hidden');
       return;
     }
-    const n = state.calibration.length;
-    const rectNames = ['лівий верхній кут', 'правий верхній кут', 'правий нижній кут', 'лівий нижній кут'];
-    const ellipseNames = ['верхню крайню точку', 'праву крайню точку', 'нижню крайню точку', 'ліву крайню точку'];
-    const names = state.shape === 'rect' ? rectNames : ellipseNames;
-    els.calibrationHint.textContent = `Калібрування ${n + 1}/4: натисніть ${names[n]}.`;
+    els.calibrationHint.textContent = 'Перетягни фігуру на антену та зафіксуй її галочкою.';
     els.calibrationHint.classList.remove('hidden');
   }
 
-  function finishCalibration(points, source = 'manual') {
-    if (!points || points.length !== 4) return;
-    state.anchors = points.map(p => ({ x: p.x, y: p.y }));
-    state.calibration = state.anchors.map(p => ({ ...p }));
-    state.calibrating = false;
-    state.calibrated = true;
-    state.mode = source;
-    els.calibrationHint.classList.add('hidden');
-    captureAnchorTemplates();
-    rebuildGrid();
-    updateUI();
+  function ensureFigure() {
+    if (state.figure || !els.overlay.width || !els.overlay.height) return;
+    state.figure = {
+      cx: els.overlay.width * .5,
+      cy: els.overlay.height * .5,
+      rx: els.overlay.width * .32,
+      ry: els.overlay.height * .32
+    };
+  }
+
+  function figureAnchors() {
+    const f = state.figure;
+    if (!f) return [];
+    if (state.shape === 'rect') {
+      return [
+        { x: f.cx - f.rx, y: f.cy - f.ry },
+        { x: f.cx + f.rx, y: f.cy - f.ry },
+        { x: f.cx + f.rx, y: f.cy + f.ry },
+        { x: f.cx - f.rx, y: f.cy + f.ry }
+      ];
+    }
+    return [
+      { x: f.cx, y: f.cy - f.ry },
+      { x: f.cx + f.rx, y: f.cy },
+      { x: f.cx, y: f.cy + f.ry },
+      { x: f.cx - f.rx, y: f.cy }
+    ];
+  }
+
+  function lockFigure(locked) {
+    if (locked) {
+      if (!state.running) {
+        els.figureLockInput.checked = false;
+        return toast('Спочатку увімкніть камеру.');
+      }
+      ensureFigure();
+      state.anchors = figureAnchors();
+      state.calibration = state.anchors.map(p => ({ ...p }));
+      state.calibrating = false;
+      state.calibrated = true;
+      state.figureLocked = true;
+      state.mode = 'manual';
+      els.calibrationHint.classList.add('hidden');
+      captureAnchorTemplates();
+      rebuildGrid();
+      toast('Фігуру зафіксовано. Сітка стежить за антеною.');
+    } else {
+      state.figureLocked = false;
+      state.calibrated = false;
+      state.anchors = [];
+      state.calibration = [];
+      state.anchorTemplates = [];
+      state.grid = [];
+      state.active = null;
+      updateCalibrationHint();
+      updateUI();
+    }
   }
 
   function resetCalibration(showToast = true) {
@@ -190,10 +227,13 @@
     state.anchorTemplates = [];
     state.calibrating = false;
     state.calibrated = false;
-    state.arucoEnabled = false;
+    state.figureLocked = false;
+    state.figure = null;
     state.grid = [];
     state.active = null;
+    if (els.figureLockInput) els.figureLockInput.checked = false;
     els.calibrationHint.classList.add('hidden');
+    ensureFigure();
     if (showToast) toast('Калібрування скинуто.');
     updateUI();
   }
@@ -420,66 +460,6 @@
     return best ? { ...best, distance: Math.sqrt(bestD) } : null;
   }
 
-  function enableAruco() {
-    if (!state.running) return toast('Спочатку увімкніть камеру.');
-    if (!window.AR?.Detector) return toast('ArUco-бібліотека ще не завантажилась або недоступна.');
-    state.mode = 'aruco';
-    state.arucoEnabled = true;
-    state.calibrating = false;
-    state.detector ||= new AR.Detector();
-    toast(state.shape === 'rect' ? 'ArUco: ID 0→TL, 1→TR, 2→BR, 3→BL.' : 'ArUco: ID 0→верх, 1→право, 2→низ, 3→ліво.');
-  }
-
-  function processAruco(img) {
-    if (!state.arucoEnabled || !state.detector || !img) return;
-    let markers = [];
-    try { markers = state.detector.detect(img); } catch { return; }
-    const pts = new Array(4);
-    for (const m of markers) {
-      if (m.id < 0 || m.id > 3) continue;
-      const cx = m.corners.reduce((s, p) => s + p.x, 0) / m.corners.length;
-      const cy = m.corners.reduce((s, p) => s + p.y, 0) / m.corners.length;
-      pts[m.id] = analysisToVideo({ x: cx, y: cy });
-    }
-    if (pts.every(Boolean)) {
-      state.anchors = pts;
-      state.calibrated = true;
-      state.mode = 'aruco';
-      rebuildGrid();
-    }
-  }
-
-  function autoContour() {
-    if (!state.running) return toast('Спочатку увімкніть камеру.');
-    const img = captureAnalysisFrame();
-    if (!img) return toast('Не вдалося прочитати кадр.');
-    const points = [];
-    for (let y = 2; y < img.height - 2; y += 2) {
-      for (let x = 2; x < img.width - 2; x += 2) {
-        const g1 = grayAt(img, x + 1, y) - grayAt(img, x - 1, y);
-        const g2 = grayAt(img, x, y + 1) - grayAt(img, x, y - 1);
-        const mag = Math.abs(g1) + Math.abs(g2);
-        if (mag > 95) points.push({ x, y });
-      }
-    }
-    if (points.length < 60) return toast('Контур не знайдено. Спробуйте ручне калібрування.');
-    const xs = points.map(p => p.x).sort((a, b) => a - b);
-    const ys = points.map(p => p.y).sort((a, b) => a - b);
-    const q = (arr, t) => arr[Math.floor((arr.length - 1) * t)];
-    const minX = q(xs, .08), maxX = q(xs, .92), minY = q(ys, .08), maxY = q(ys, .92);
-    const midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
-    const anchors = state.shape === 'rect'
-      ? [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY }]
-      : [{ x: midX, y: minY }, { x: maxX, y: midY }, { x: midX, y: maxY }, { x: minX, y: midY }];
-    finishCalibration(anchors.map(analysisToVideo), 'contour');
-    toast('Експериментальний контур знайдено. Перевірте накладання сітки.');
-  }
-
-  function grayAt(img, x, y) {
-    const i = (y * img.width + x) * 4;
-    return img.data[i] * .299 + img.data[i+1] * .587 + img.data[i+2] * .114;
-  }
-
   function confirmActive() {
     if (!state.active || !state.laser) return toast('Немає активної точки.');
     const id = state.active.id;
@@ -530,6 +510,10 @@
     const w = els.overlay.width, h = els.overlay.height;
     ctx.clearRect(0, 0, w, h);
     if (!w || !h) return;
+
+    if (!state.figureLocked && state.figure) {
+      drawEditableFigure();
+    }
 
     if (state.calibrating) {
       ctx.save();
@@ -599,6 +583,92 @@
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  function drawEditableFigure() {
+    const f = state.figure;
+    if (!f) return;
+    ctx.save();
+    ctx.lineWidth = Math.max(3, els.overlay.width / 360);
+    ctx.strokeStyle = '#69b7ff';
+    ctx.fillStyle = 'rgba(65, 156, 255, .12)';
+    ctx.setLineDash([12, 8]);
+    if (state.shape === 'rect') {
+      ctx.beginPath();
+      ctx.rect(f.cx - f.rx, f.cy - f.ry, f.rx * 2, f.ry * 2);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(f.cx, f.cy, f.rx, f.ry, 0, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#69b7ff';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(f.cx + f.rx, f.cy + f.ry, Math.max(10, els.overlay.width / 90), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function figureContains(p) {
+    if (!state.figure) return false;
+    const f = state.figure;
+    if (state.shape === 'rect') {
+      return Math.abs(p.x - f.cx) <= f.rx && Math.abs(p.y - f.cy) <= f.ry;
+    }
+    const nx = (p.x - f.cx) / f.rx;
+    const ny = (p.y - f.cy) / f.ry;
+    return nx * nx + ny * ny <= 1;
+  }
+
+  function figureHandleHit(p) {
+    if (!state.figure) return false;
+    const f = state.figure;
+    const radius = Math.max(24, Math.min(els.overlay.width, els.overlay.height) / 16);
+    return Math.hypot(p.x - (f.cx + f.rx), p.y - (f.cy + f.ry)) <= radius;
+  }
+
+  function beginFigureEdit(ev) {
+    if (!state.running || state.figureLocked) return;
+    ensureFigure();
+    const p = canvasPointFromEvent(ev);
+    if (!figureHandleHit(p) && !figureContains(p)) return;
+    ev.preventDefault();
+    els.overlay.setPointerCapture?.(ev.pointerId);
+    state.pointerEdit = {
+      mode: figureHandleHit(p) ? 'resize' : 'move',
+      start: p,
+      base: { ...state.figure }
+    };
+  }
+
+  function moveFigure(ev) {
+    if (!state.pointerEdit || state.figureLocked) return;
+    ev.preventDefault();
+    const p = canvasPointFromEvent(ev);
+    const d = { x: p.x - state.pointerEdit.start.x, y: p.y - state.pointerEdit.start.y };
+    const base = state.pointerEdit.base;
+    const minRadius = Math.max(32, Math.min(els.overlay.width, els.overlay.height) * .04);
+    if (state.pointerEdit.mode === 'move') {
+      state.figure.cx = clamp(base.cx + d.x, base.rx, els.overlay.width - base.rx);
+      state.figure.cy = clamp(base.cy + d.y, base.ry, els.overlay.height - base.ry);
+    } else {
+      state.figure.rx = clamp(base.rx + d.x, minRadius, els.overlay.width * .48);
+      state.figure.ry = clamp(base.ry + d.y, minRadius, els.overlay.height * .48);
+      state.figure.cx = clamp(base.cx, state.figure.rx, els.overlay.width - state.figure.rx);
+      state.figure.cy = clamp(base.cy, state.figure.ry, els.overlay.height - state.figure.ry);
+    }
+    draw();
+  }
+
+  function endFigureEdit(ev) {
+    if (!state.pointerEdit) return;
+    ev?.preventDefault();
+    state.pointerEdit = null;
+    updateCalibrationHint();
   }
 
   function drawGridLines() {
@@ -696,7 +766,7 @@
     }
     if (els.trackingStatus) {
       els.trackingStatus.textContent = state.calibrated
-        ? (state.mode === 'aruco' ? 'ArUco прив’язка' : state.mode === 'contour' ? 'Контур прив’язаний' : 'Сітка прив’язана')
+        ? 'Фігура зафіксована'
         : 'Сітка не прив’язана';
       els.trackingStatus.className = 'pill ' + (state.calibrated ? 'success' : '');
     }
@@ -728,7 +798,6 @@
       state.lastAnalysisAt = ts;
       const img = captureAnalysisFrame();
       if (img) {
-        if (state.arucoEnabled) processAruco(img);
         if (ts - state.lastTrackAt > 360) {
           state.lastTrackAt = ts;
           trackAnchors(img);
@@ -746,23 +815,16 @@
   function round2(v) { return Math.round(v * 100) / 100; }
   function round6(v) { return Math.round(v * 1e6) / 1e6; }
 
-  els.overlay.addEventListener('pointerup', ev => {
-    if (!state.calibrating) return;
-    ev.preventDefault();
-    const p = canvasPointFromEvent(ev);
-    state.calibration.push(p);
-    if (state.calibration.length === 4) finishCalibration(state.calibration, 'manual');
-    else updateCalibrationHint();
-    draw();
-  });
+  els.overlay.addEventListener('pointerdown', beginFigureEdit);
+  els.overlay.addEventListener('pointermove', moveFigure);
+  els.overlay.addEventListener('pointerup', endFigureEdit);
+  els.overlay.addEventListener('pointercancel', endFigureEdit);
 
   els.startCameraBtn.addEventListener('click', startCamera);
   els.stopCameraBtn.addEventListener('click', stopCamera);
   els.rectShapeBtn.addEventListener('click', () => setShape('rect'));
   els.ellipseShapeBtn.addEventListener('click', () => setShape('ellipse'));
-  els.manualCalibrateBtn.addEventListener('click', beginManualCalibration);
-  els.arucoBtn.addEventListener('click', enableAruco);
-  els.contourBtn.addEventListener('click', autoContour);
+  els.figureLockInput.addEventListener('change', () => lockFigure(els.figureLockInput.checked));
   els.resetCalibrationBtn.addEventListener('click', () => resetCalibration(true));
   els.rowsInput.addEventListener('change', rebuildGrid);
   els.colsInput.addEventListener('change', rebuildGrid);
