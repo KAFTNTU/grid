@@ -370,19 +370,23 @@
   }
 
   function rebuildGrid() {
-    if (!state.calibrated || state.anchors.length !== 4) {
+    if (!state.calibrated) {
       state.grid = [];
       updateUI();
       return;
     }
+    if (!validAnchors(state.anchors)) return;
 
-    state.grid = buildGridPoints(state.anchors);
+    const nextGrid = buildGridPoints(state.anchors);
+    // A bad tracking frame must not erase the last valid grid.
+    if (!nextGrid.length) return;
+    state.grid = nextGrid;
     if (state.active && !state.grid.some(p => p.id === state.active.id)) state.active = null;
     updateUI();
   }
 
   function buildGridPoints(anchors) {
-    if (!anchors || anchors.length !== 4) return [];
+    if (!validAnchors(anchors)) return [];
 
     const { rows, cols } = getGridSize();
     const pts = [];
@@ -415,6 +419,11 @@
       }
     }
     return pts;
+  }
+
+  function validAnchors(anchors) {
+    return Array.isArray(anchors) && anchors.length === 4
+      && anchors.every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y));
   }
 
   function bilerp(tl, tr, br, bl, u, v) {
