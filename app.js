@@ -312,7 +312,12 @@
         return toast('Спочатку увімкніть камеру.');
       }
       ensureFigure();
-      state.anchors = figureAnchors();
+      const lockedAnchors = figureAnchors();
+      if (!validAnchors(lockedAnchors)) {
+        els.figureLockInput.checked = false;
+        return toast('Не вдалося зафіксувати фігуру. Перемістіть її на камері й спробуйте ще раз.');
+      }
+      state.anchors = lockedAnchors;
       state.calibration = state.anchors.map(p => ({ ...p }));
       state.calibrating = false;
       state.calibrated = true;
@@ -321,6 +326,8 @@
       initKalman(state.anchors);
       els.calibrationHint.classList.add('hidden');
       captureAnchorTemplates();
+      const lockedGrid = buildGridPoints(state.anchors);
+      if (lockedGrid.length) state.grid = lockedGrid;
       rebuildGrid();
       saveCalibration();
       toast('Фігуру зафіксовано. Сітка стежить за антеною.');
@@ -993,7 +1000,9 @@
     const displayAnchors = state.calibrated && state.anchors.length === 4
       ? state.anchors
       : state.figure ? figureAnchors() : [];
-    const displayGrid = state.calibrated ? state.grid : buildGridPoints(displayAnchors);
+    const previewGrid = buildGridPoints(displayAnchors);
+    const displayGrid = state.grid.length ? state.grid : previewGrid;
+    if (state.calibrated && !state.grid.length && previewGrid.length) state.grid = previewGrid;
 
     if (displayAnchors.length === 4) {
       ctx.save();
