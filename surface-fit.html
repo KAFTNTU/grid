@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0d1117" />
+  <title>Аналіз поверхні антени</title>
+  <link rel="stylesheet" href="surface-fit.css" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="surface-fit.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">LEICA / MATLAB STYLE FIT</div>
+        <h1>Аналіз поверхні антени</h1>
+        <p class="muted">GSI або CSV → координати → квадратична поверхня → похибка</p>
+      </div>
+      <a class="back-link" href="index.html">← Навігатор</a>
+    </header>
+
+    <section class="card input-card">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">1. ВХІДНІ ДАНІ</div>
+          <h2>Завантаж масив Leica</h2>
+        </div>
+        <span id="parseStatus" class="status">Очікує дані</span>
+      </div>
+      <div class="input-row">
+        <label class="file-label">Відкрити файл
+          <input id="fileInput" type="file" accept=".gsi,.txt,.csv,.tsv" />
+        </label>
+        <button id="exampleBtn" class="btn">Демо 8×8</button>
+        <button id="parseBtn" class="btn primary">Розрахувати</button>
+        <button id="clearBtn" class="btn ghost">Очистити</button>
+      </div>
+      <textarea id="sourceInput" spellcheck="false" placeholder="Встав сюди GSI-текст або CSV з колонками E/X, N/Y, H/Z..."></textarea>
+      <p class="help">Підтримуються GSI-поля 81/82/83, а також готові CSV-колонки <code>E_m,N_m,H_m</code> або <code>X,Y,Z</code>. Якщо координат немає, програма спробує відновити їх із 21/22/31.</p>
+    </section>
+
+    <section class="card settings-card">
+      <div class="eyebrow">2. МЕТОД РОЗРАХУНКУ</div>
+      <div class="settings-grid">
+        <label>Координати
+          <select id="coordinateMode">
+            <option value="auto">Автоматично</option>
+            <option value="coordinates">81/82/83 або X/Y/Z</option>
+            <option value="polar">Відновити з 21/22/31</option>
+          </select>
+        </label>
+        <label>Робастність
+          <select id="robustMode">
+            <option value="bisquare" selected>Bisquare, як robust fit</option>
+            <option value="ordinary">Звичайні найменші квадрати</option>
+          </select>
+        </label>
+        <label>Поріг викиду, σ
+          <input id="sigmaInput" type="number" min="1" max="8" step="0.1" value="2.5" />
+        </label>
+        <label>Ширина антени, мм
+          <input id="widthInput" type="number" min="1" step="1" value="660" />
+        </label>
+        <label>Висота антени, мм
+          <input id="heightInput" type="number" min="1" step="1" value="765" />
+        </label>
+        <label>Глибина номіналу, мм
+          <input id="depthInput" type="number" min="0" step="1" value="73" />
+        </label>
+      </div>
+      <p class="method-note">Модель поверхні: <strong>poly22</strong> — квадратична поверхня <code>z = a·x² + b·xy + c·y² + d·x + e·y + f</code>. Коефіцієнти не є результатом самі по собі: програма рахує прогноз, залишок кожної точки, SSE, RMSE та R².</p>
+    </section>
+
+    <section class="stats-grid" aria-label="Підсумок">
+      <div class="stat"><span>Точок розібрано</span><strong id="statParsed">—</strong></div>
+      <div class="stat"><span>У фіті</span><strong id="statUsed">—</strong></div>
+      <div class="stat accent"><span>RMSE</span><strong id="statRmse">—</strong></div>
+      <div class="stat"><span>Макс. |похибка|</span><strong id="statMax">—</strong></div>
+      <div class="stat"><span>R²</span><strong id="statR2">—</strong></div>
+    </section>
+
+    <section class="card plot-card">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">3. ПОВЕРХНЯ</div>
+          <h2>Точки та апроксимація</h2>
+        </div>
+        <span id="modelStatus" class="status">Немає моделі</span>
+      </div>
+      <div id="plot3d" class="plot"></div>
+    </section>
+
+    <section class="card plot-card">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">4. ЗАЛИШКИ</div>
+          <h2>Похибка по точках</h2>
+        </div>
+        <span class="muted small">r = виміряне − модель</span>
+      </div>
+      <div id="residualPlot" class="plot plot-small"></div>
+    </section>
+
+    <section class="card report-card">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">5. РЕЗУЛЬТАТ</div>
+          <h2>Параметри та експорт</h2>
+        </div>
+        <div class="button-row">
+          <button id="downloadCsvBtn" class="btn" disabled>CSV із похибками</button>
+          <button id="downloadMatlabBtn" class="btn" disabled>MATLAB-код</button>
+        </div>
+      </div>
+      <pre id="modelText" class="model-text">Завантаж дані, щоб побачити результат.</pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>N</th><th>E / X, м</th><th>N / Y, м</th><th>H / Z, м</th><th>Модель, м</th><th>Залишок, мм</th><th>Статус</th></tr></thead>
+          <tbody id="resultBody"><tr><td colspan="7" class="empty">Тут з’являться точки після розрахунку.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
