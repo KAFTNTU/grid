@@ -7,6 +7,7 @@
     cameraPlaceholder: $('cameraPlaceholder'), calibrationHint: $('calibrationHint'), secureBadge: $('secureBadge'),
     startCameraBtn: $('startCameraBtn'), stopCameraBtn: $('stopCameraBtn'), currentPoint: $('currentPoint'), dockPoint: $('dockPoint'),
     laserStatus: $('laserStatus'), trackingStatus: $('trackingStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
+    antennaWidthMm: $('antennaWidthMm'), antennaHeightMm: $('antennaHeightMm'), gridPitchInfo: $('gridPitchInfo'),
     addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), fullscreenBtn: $('fullscreenBtn'), antennaColorInput: $('antennaColorInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
     calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
@@ -77,6 +78,8 @@
     localStorage.setItem('tn_show_labels_v2', JSON.stringify(state.showLabels));
     localStorage.setItem('tn_auto_capture_v1', JSON.stringify(state.autoCapture));
     localStorage.setItem('tn_clip_grid_v1', JSON.stringify(state.clipGridToShape));
+    localStorage.setItem('tn_antenna_width_mm', els.antennaWidthMm.value);
+    localStorage.setItem('tn_antenna_height_mm', els.antennaHeightMm.value);
   }
 
   function saveCalibration() {
@@ -146,6 +149,7 @@
     els.shapeMenu.classList.add('hidden');
     els.addFigureBtn.setAttribute('aria-expanded', 'false');
     saveState();
+    updateGridPitchInfo();
   }
 
   function setSecureBadge() {
@@ -399,6 +403,23 @@
     };
   }
 
+  function updateGridPitchInfo() {
+    const width = Number.parseFloat(els.antennaWidthMm.value);
+    const height = Number.parseFloat(els.antennaHeightMm.value);
+    const { rows, cols } = getGridSize();
+    if (!(width > 0) || !(height > 0)) {
+      els.gridPitchInfo.textContent = 'Вкажи ширину та висоту антени в мм. Для круга введи однаковий діаметр X і Y.';
+      return;
+    }
+    const pitchX = width / (cols - 1);
+    const pitchY = height / (rows - 1);
+    const fmt = value => new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 2 }).format(value);
+    const kind = state.shape === 'rect' ? 'антена' : state.shape === 'circle'
+      ? (Math.abs(width - height) < 0.01 ? 'кругла антена' : 'круг: X і Y мають бути однакові')
+      : (Math.abs(width - height) < 0.01 ? 'кругла антена' : 'еліпс');
+    els.gridPitchInfo.textContent = `${kind} · номінальний крок X ${fmt(pitchX)} мм, Y ${fmt(pitchY)} мм. На еліпсі фактичний крок локально змінюється.`;
+  }
+
   function updateFullscreenButton() {
     const active = document.fullscreenElement === els.cameraFrame || els.cameraFrame.classList.contains('fullscreen-fallback');
     if (!els.fullscreenBtn) return;
@@ -495,6 +516,8 @@
         }
       }
     }
+    const markerRadius = Math.max(4, Math.min(els.overlay.width, els.overlay.height) / 180) * 1.65;
+    for (const p of pts) p.captureRadius = markerRadius;
     return pts;
   }
 
@@ -1078,7 +1101,10 @@
         best = p;
       }
     }
-    return best ? { ...best, distance: Math.sqrt(bestD) } : null;
+    if (!best) return null;
+    const distance = Math.sqrt(bestD);
+    if (distance > best.captureRadius) return null;
+    return { ...best, distance };
   }
 
   function clearLaserCandidate() {
@@ -1125,7 +1151,7 @@
     state.laserCandidateSeenAt = ts;
     const stableFor = ts - state.laserCandidateSince;
     const cooldown = ts - state.lastAutoCaptureAt;
-    if (stableFor < 160 || cooldown < 600) return;
+    if (stableFor < 2000 || cooldown < 600) return;
     if (confirmActive({ automatic: true })) {
       state.lastAutoCaptureAt = ts;
       clearLaserCandidate();
@@ -1509,7 +1535,11 @@
       if (state.antennaColor) els.trackingHud.style.setProperty('--antenna-color', state.antennaColor.hex);
     }
     els.confirmPointBtn.disabled = !active || !state.laser || state.done.has(active.id);
-    els.confirmPointBtn.textContent = active && state.done.has(active.id) ? 'Уже знято' : 'Точку знято';
+    const waiting = state.autoCapture && state.laserCandidate?.id === active?.id;
+    const remaining = waiting ? Math.max(0, 2 - (performance.now() - state.laserCandidateSince) / 1000) : 0;
+    els.confirmPointBtn.textContent = active && state.done.has(active.id)
+      ? 'Уже знято'
+      : waiting ? `Автофіксація ${remaining.toFixed(1)} с` : 'Точку знято';
   }
 
   function updateUI() {
@@ -1557,13 +1587,17 @@
             state.active = candidate;
             state.activeSeenAt = ts;
             autoCaptureCandidate(candidate, ts);
+          } else {
+            clearLaserCandidate();
+            state.active = null;
+            state.activeSeenAt = 0;
           }
         } else {
           // The laser detector can miss a frame because of camera exposure or
           // motion. Keep the last selected grid point visible briefly instead
           // of making the UI flicker between a point and an empty state.
           state.laser = null;
-          if (state.laserCandidate && ts - state.laserCandidateSeenAt > 450) {
+          if (state.laserCandidate && ts - state.laserCandidateSeenAt > 300) {
             clearLaserCandidate();
           }
           if (!state.active || ts - state.activeSeenAt > 1600) {
@@ -1606,8 +1640,13 @@
       updateStatus();
     }
   });
-  els.rowsInput.addEventListener('change', rebuildGrid);
-  els.colsInput.addEventListener('change', rebuildGrid);
+  els.rowsInput.addEventListener('change', () => { clearLaserCandidate(); rebuildGrid(); updateGridPitchInfo(); });
+  els.colsInput.addEventListener('change', () => { clearLaserCandidate(); rebuildGrid(); updateGridPitchInfo(); });
+  for (const input of [els.antennaWidthMm, els.antennaHeightMm]) {
+    const key = input === els.antennaWidthMm ? 'tn_antenna_width_mm' : 'tn_antenna_height_mm';
+    input.value = localStorage.getItem(key) || '';
+    input.addEventListener('input', () => { saveState(); updateGridPitchInfo(); });
+  }
   els.laserThreshold.addEventListener('input', () => els.thresholdValue.textContent = els.laserThreshold.value);
   els.confirmPointBtn.addEventListener('click', confirmActive);
   els.exportCsvBtn?.addEventListener('click', exportCSV);
@@ -1633,6 +1672,7 @@
   if (els.clipGridInput) els.clipGridInput.checked = !!state.clipGridToShape;
   setShape(state.shape);
   els.thresholdValue.textContent = els.laserThreshold.value;
+  updateGridPitchInfo();
   updateUI();
 
   if ('serviceWorker' in navigator && (window.isSecureContext || location.hostname === 'localhost')) {

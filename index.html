@@ -53,7 +53,7 @@
           <input id="showLabelsInput" type="checkbox" />
           <span>Номери точок</span>
         </label>
-        <label class="lock-chip auto-chip" title="Автоматично записувати точку після спалаху лазера">
+        <label class="lock-chip auto-chip" title="Автоматично зарахувати точку після 2 секунд лазера на ній">
           <input id="autoCaptureInput" type="checkbox" checked />
           <span>Автозапис лазера</span>
         </label>
@@ -94,6 +94,16 @@
           <input id="colsInput" type="number" min="2" max="50" value="8" inputmode="numeric" />
         </label>
       </div>
+      <div class="grid-two compact-gap antenna-size-settings">
+        <label>Ширина / діаметр X, мм
+          <input id="antennaWidthMm" type="number" min="1" step="any" placeholder="введи розмір" inputmode="decimal" />
+        </label>
+        <label>Висота / діаметр Y, мм
+          <input id="antennaHeightMm" type="number" min="1" step="any" placeholder="введи розмір" inputmode="decimal" />
+        </label>
+      </div>
+      <div class="inline-note" id="gridPitchInfo" aria-live="polite">Вкажи ширину та висоту антени в мм. Для круга введи однаковий діаметр X і Y.</div>
+      <p class="help">Крок рахується за габаритами й кількістю рядків/колонок; для еліптичної сітки це орієнтир, бо відстань між точками змінюється по поверхні.</p>
       <div class="grid-two compact-gap toggle-grid">
         <label class="toggle-card">
           <span>Показувати лінії сітки</span>
