@@ -4,18 +4,15 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     video: $('video'), overlay: $('overlay'), analysisCanvas: $('analysisCanvas'), cameraFrame: $('cameraFrame'),
-    cameraPlaceholder: $('cameraPlaceholder'), calibrationHint: $('calibrationHint'), secureBadge: $('secureBadge'),
+    cameraPlaceholder: $('cameraPlaceholder'),
     startCameraBtn: $('startCameraBtn'), stopCameraBtn: $('stopCameraBtn'), currentPoint: $('currentPoint'), dockPoint: $('dockPoint'),
-    laserStatus: $('laserStatus'), trackingStatus: $('trackingStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
+    laserStatus: $('laserStatus'), rowsInput: $('rowsInput'), colsInput: $('colsInput'),
     antennaWidthMm: $('antennaWidthMm'), antennaHeightMm: $('antennaHeightMm'), gridPitchInfo: $('gridPitchInfo'),
-    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), fullscreenBtn: $('fullscreenBtn'), antennaColorInput: $('antennaColorInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
-    calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
+    addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), fullscreenBtn: $('fullscreenBtn'), antennaColorInput: $('antennaColorInput'),
+    laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
     captureRadiusInput: $('captureRadiusInput'), captureRadiusValue: $('captureRadiusValue'), showCaptureRadiusInput: $('showCaptureRadiusInput'),
-    confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
-    doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
-    doneList: $('doneList'), pendingList: $('pendingList'), jobName: $('jobName'), exportCsvBtn: $('exportCsvBtn'), clearJournalBtn: $('clearJournalBtn'),
+    confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'),
     showLinesInput: $('showLinesInput'), showLabelsInput: $('showLabelsInput'), autoCaptureInput: $('autoCaptureInput'), clipGridInput: $('clipGridInput'), toast: $('toast'),
-    trackingStatus: $('trackingStatus'), trackingMethod: $('trackingMethod'), antennaColorStatus: $('antennaColorStatus'), trackingHud: document.querySelector('.tracking-hud')
   };
 
   const ctx = els.overlay.getContext('2d');
@@ -31,9 +28,7 @@
     clipGridToShape: loadJSON('tn_clip_grid_v1', false),
     captureRadiusScale: loadJSON('tn_capture_radius_scale_v1', 2.5),
     showCaptureRadius: loadJSON('tn_show_capture_radius_v1', false),
-    mode: 'manual',
     calibration: [],
-    calibrating: false,
     calibrated: false,
     figureLocked: false,
     figure: null,
@@ -47,7 +42,6 @@
     laserCandidateSeenAt: 0,
     lastAutoCaptureAt: 0,
     laser: null,
-    journal: loadJSON('tn_journal', []),
     done: new Set(loadJSON('tn_done', [])),
     lastAnalysisAt: 0,
     lastTrackAt: 0,
@@ -57,9 +51,6 @@
     cvPrevGray: null,
     cvPrevPoints: null,
     cvFeatureMode: false,
-    trackingPoints: [],
-    trackingMode: 'Очікування',
-    trackingConfidence: 0,
     antennaColor: null,
     kalman: null
   };
@@ -75,7 +66,6 @@
   }
 
   function saveState() {
-    localStorage.setItem('tn_journal', JSON.stringify(state.journal));
     localStorage.setItem('tn_done', JSON.stringify([...state.done]));
     localStorage.setItem('tn_shape', state.shape);
     localStorage.setItem('tn_show_lines', JSON.stringify(state.showLines));
@@ -119,15 +109,12 @@
     state.figure = { ...p };
     state.anchors = anchorsFromParams(p);
     state.calibration = state.anchors.map(point => ({ ...point }));
-    state.calibrating = false;
     state.calibrated = true;
     state.figureLocked = true;
-    state.mode = 'manual';
     state.antennaColor = saved.color || null;
     if (els.antennaColorInput) els.antennaColorInput.checked = !!saved.colorEnabled;
     initKalman(state.anchors);
     if (els.figureLockInput) els.figureLockInput.checked = true;
-    els.calibrationHint.classList.add('hidden');
     rebuildGrid();
     return true;
   }
@@ -144,24 +131,11 @@
     els.rectShapeBtn.classList.toggle('active', shape === 'rect');
     els.circleShapeBtn.classList.toggle('active', shape === 'circle');
     els.ellipseShapeBtn.classList.toggle('active', shape === 'ellipse');
-    els.calibrationHelp.textContent = shape === 'rect'
-      ? 'Перетягни прямокутник на антену, потягни маркер у куті для зміни розміру й постав галочку.'
-      : shape === 'circle'
-        ? 'Перетягни коло на антену, потягни маркер для рівномірного розміру й постав галочку.'
-        : 'Перетягни еліпс на антену, потягни маркер у куті для зміни розміру й постав галочку.';
     resetCalibration(false);
     els.shapeMenu.classList.add('hidden');
     els.addFigureBtn.setAttribute('aria-expanded', 'false');
     saveState();
     updateGridPitchInfo();
-  }
-
-  function setSecureBadge() {
-    const secure = window.isSecureContext || location.hostname === 'localhost';
-    if (els.secureBadge) {
-      els.secureBadge.textContent = secure ? 'Камера доступна' : 'Потрібен HTTPS';
-      els.secureBadge.className = 'badge ' + (secure ? 'ok' : 'error');
-    }
   }
 
   function cameraErrorMessage(err) {
@@ -196,8 +170,6 @@
     try {
       return await navigator.mediaDevices.getUserMedia(preferred);
     } catch (firstError) {
-      // Some desktop cameras reject resolution/facing-mode hints. Retry with
-      // the browser's default camera instead of failing the whole startup.
       if (firstError?.name === 'NotAllowedError' || firstError?.name === 'SecurityError' || firstError?.name === 'NotReadableError') {
         throw firstError;
       }
@@ -229,8 +201,6 @@
       els.cameraFrame.style.aspectRatio = `${vw} / ${vh}`;
       els.overlay.width = vw;
       els.overlay.height = vh;
-      // Keep enough camera detail for a tiny laser spot; the old 360px frame
-      // could downsample a small spot out of existence before detection.
       const analysisWidth = Math.min(vw, 960);
       els.analysisCanvas.width = analysisWidth;
       els.analysisCanvas.height = Math.max(180, Math.round(analysisWidth * vh / vw));
@@ -282,11 +252,6 @@
       x: (ev.clientX - r.left) * els.overlay.width / r.width,
       y: (ev.clientY - r.top) * els.overlay.height / r.height
     };
-  }
-
-  function updateCalibrationHint() {
-    // The camera view should stay clear; controls already explain the workflow.
-    els.calibrationHint.classList.add('hidden');
   }
 
   function ensureFigure() {
@@ -344,14 +309,11 @@
       }
       state.anchors = lockedAnchors;
       state.calibration = state.anchors.map(p => ({ ...p }));
-      state.calibrating = false;
       state.calibrated = true;
       state.figureLocked = true;
-      state.mode = 'manual';
       const frame = captureAnalysisFrame();
       state.antennaColor = frame ? captureAntennaColor(frame) : null;
       initKalman(state.anchors);
-      els.calibrationHint.classList.add('hidden');
       captureAnchorTemplates();
       const lockedGrid = buildGridPoints(state.anchors);
       if (lockedGrid.length) state.grid = lockedGrid;
@@ -371,7 +333,6 @@
       clearLaserCandidate();
       state.antennaColor = null;
       clearSavedCalibration();
-      updateCalibrationHint();
       updateUI();
     }
   }
@@ -382,7 +343,6 @@
     state.anchors = [];
     state.anchorTemplates = [];
     state.kalman = null;
-    state.calibrating = false;
     state.calibrated = false;
     state.figureLocked = false;
     state.figure = null;
@@ -390,13 +350,9 @@
     state.active = null;
     state.activeSeenAt = 0;
     clearLaserCandidate();
-    state.trackingPoints = [];
-    state.trackingMode = 'Очікування';
-    state.trackingConfidence = 0;
     state.antennaColor = null;
     clearSavedCalibration();
     if (els.figureLockInput) els.figureLockInput.checked = false;
-    els.calibrationHint.classList.add('hidden');
     ensureFigure();
     if (els.figureLockInput) els.figureLockInput.disabled = !state.figure;
     if (showToast) toast('Калібрування скинуто.');
@@ -415,9 +371,8 @@
     const nextKey = `${rows}x${cols}`;
     if (nextKey !== lastGridSizeKey) {
       lastGridSizeKey = nextKey;
-      const hadRecords = state.done.size > 0 || state.journal.length > 0;
+      const hadRecords = state.done.size > 0;
       state.done.clear();
-      state.journal = [];
       state.active = null;
       state.activeSeenAt = 0;
       clearLaserCandidate();
@@ -498,7 +453,6 @@
     if (!validAnchors(state.anchors)) return;
 
     const nextGrid = buildGridPoints(state.anchors);
-    // A bad tracking frame must not erase the last valid grid.
     if (!nextGrid.length) return;
     state.grid = nextGrid;
     if (state.active && !state.grid.some(p => p.id === state.active.id)) state.active = null;
@@ -533,8 +487,6 @@
         for (let c = 0; c < cols; c++) {
           const u = cols === 1 ? 0 : -1 + 2 * c / (cols - 1);
           if (state.clipGridToShape && u * u + v * v > 1.0001) continue;
-          // Full mode maps every square cell into the disk. Clip mode
-          // keeps the original rectangular lattice and removes corners.
           const disk = state.clipGridToShape ? { x: u, y: v } : squareToDisk(u, v);
           const p = ellipsePointFromNormalized(disk.x, disk.y, basis);
           pts.push({ id: `P${number++}`, row: r + 1, col: c + 1, x: p.x, y: p.y, u, v, nx: disk.x, ny: disk.y });
@@ -546,8 +498,6 @@
     return pts;
   }
 
-  // Shirley–Chiu concentric square-to-disk mapping. It preserves the
-  // matrix structure but bends its outer rows/columns onto the ellipse.
   function squareToDisk(u, v) {
     if (Math.abs(u) < 1e-9 && Math.abs(v) < 1e-9) return { x: 0, y: 0 };
     if (Math.abs(u) > Math.abs(v)) {
@@ -681,8 +631,6 @@
     state.cvPrevGray = null;
     state.cvPrevPoints = null;
     state.cvFeatureMode = false;
-    state.trackingMode = state.calibrated ? 'Повторне захоплення' : 'Очікування';
-    state.trackingConfidence = 0;
   }
 
   function initializeCvTracking(img) {
@@ -711,9 +659,6 @@
     state.cvFeatureMode = points.length > 4;
     const flat = points.flatMap(p => [p.x, p.y]);
     state.cvPrevPoints = cv.matFromArray(points.length, 1, cv.CV_32FC2, flat);
-    state.trackingPoints = points.map(analysisToVideo);
-    state.trackingMode = 'OpenCV: контрольні ознаки';
-    state.trackingConfidence = clamp(points.length / 12, 0, 1);
     return true;
   }
 
@@ -738,11 +683,7 @@
   }
 
   function trackAnchors(img) {
-    if (!state.calibrated || state.mode !== 'manual' || state.anchorTemplates.length !== 4) {
-      state.trackingMode = state.calibrated ? 'Очікування трекера' : 'Очікування фіксації';
-      state.trackingConfidence = 0;
-      return;
-    }
+    if (!state.calibrated || state.anchorTemplates.length !== 4) return;
     if (cvReady() && trackAnchorsWithOpenCv(img)) return;
     trackAnchorsWithTemplates(img);
   }
@@ -795,9 +736,6 @@
         const a = videoToAnalysis(p);
         return analysisToVideo(applySimilarity(a, transform));
       });
-      state.trackingPoints = matches.map(m => analysisToVideo({ x: m.nx, y: m.ny }));
-      state.trackingMode = 'OpenCV: optical flow';
-      state.trackingConfidence = clamp(matches.length / Math.max(1, state.cvPrevPoints.rows), 0, 1);
       state.anchors = stabilizeAnchors(updated);
       state.cvPrevGray.delete();
       state.cvPrevPoints.delete();
@@ -925,7 +863,6 @@
 
   function trackAnchorsWithTemplates(img) {
     const updated = [];
-    let matched = 0;
     for (let k = 0; k < 4; k++) {
       const tpl = state.anchorTemplates[k];
       const prev = videoToAnalysis(state.anchors[k]);
@@ -948,15 +885,11 @@
         }
       }
       const candidate = best.score < 28 ? analysisToVideo(best) : state.anchors[k];
-      if (best.score < 28) matched++;
       updated.push({
         x: state.anchors[k].x * 0.65 + candidate.x * 0.35,
         y: state.anchors[k].y * 0.65 + candidate.y * 0.35
       });
     }
-    state.trackingPoints = updated.map(p => ({ ...p }));
-    state.trackingMode = 'Шаблонне стеження';
-    state.trackingConfidence = matched / 4;
     state.anchors = stabilizeAnchors(updated);
     rebuildGrid();
   }
@@ -970,8 +903,6 @@
     const scaleY = img.height / els.overlay.height;
     const neighborOffsets = [[-3,0],[3,0],[0,-3],[0,3]];
 
-    // Search only inside each grid node's configured capture circle, rather
-    // than letting a brighter reflection elsewhere on the antenna win.
     for (const point of state.grid) {
       const radius = point.captureRadius || Math.max(4, Math.min(els.overlay.width, els.overlay.height) / 180) * state.captureRadiusScale;
       const centerX = point.x * scaleX, centerY = point.y * scaleY;
@@ -990,7 +921,7 @@
           const redScore = r - (g + b) * 0.48;
           const isBright = brightScore >= threshold && (r + g + b) / 3 >= threshold - 18;
           const isRed = r >= Math.max(150, threshold - 20) && r > g * 1.35 && r > b * 1.25 && redScore > 60;
-          const ok = mode === 'bright' ? isBright : mode === 'red' ? isRed : (isRed || isBright);
+          const ok = mode === 'bright' ? isBright : isRed;
           if (!ok) continue;
           let neighborLuma = 0;
           for (const [ox, oy] of neighborOffsets) {
@@ -1000,8 +931,6 @@
             neighborLuma += (img.data[ni] + img.data[ni+1] + img.data[ni+2]) / 3;
           }
           const localContrast = (r + g + b) / 3 - neighborLuma / neighborOffsets.length;
-          // Contrast ranks a compact spot higher but doesn't reject a valid
-          // bright spot simply because its camera image is slightly blurred.
           const score = (isRed ? redScore + r : 0) + (isBright ? brightScore * 0.7 + Math.max(0, localContrast) * 2 : 0);
           if (!best || score > best.score) best = { x, y, score };
         }
@@ -1019,7 +948,7 @@
         const red = r > g*1.3 && r > b*1.2 ? r : 0;
         const matchesMode = mode === 'bright'
           ? lum >= threshold && (r + g + b) / 3 >= threshold - 18
-          : mode === 'red' ? red > 0 : (lum >= threshold || red > 0);
+          : red > 0;
         const w = matchesMode ? Math.max(1, lum - threshold + 25) + red : 0;
         if (w > 0) { sx += x*w; sy += y*w; sw += w; }
       }
@@ -1103,8 +1032,6 @@
       initializeCvTracking(img);
       rebuildGrid();
     } catch (err) {
-      // A frame without a usable contour is normal while the camera moves.
-      // Keep the last stable grid and do not flood the browser console.
     } finally {
       gray?.delete();
       roi?.delete();
@@ -1175,16 +1102,7 @@
       if (!automatic) toast(`${id} уже була позначена як знята.`);
       return false;
     }
-    const entry = {
-      point: id,
-      row: state.active.row,
-      column: state.active.col,
-      time: new Date().toISOString(),
-      antenna_shape: state.shape === 'circle' ? 'circle' : state.shape === 'ellipse' ? 'ellipse' : 'rectangle',
-      confirmation: automatic ? 'laser_auto' : 'manual'
-    };
     state.done.add(id);
-    state.journal.push(entry);
     saveState();
     toast(automatic ? `${id}: лазер зафіксовано, точку знято автоматично.` : `${id}: точку знято.`);
     updateUI();
@@ -1210,29 +1128,6 @@
     }
   }
 
-  function clearJournal() {
-    if (!confirm('Очистити всі позначки «знято» та журнал?')) return;
-    state.done.clear();
-    state.journal = [];
-    saveState();
-    updateUI();
-    toast('Журнал очищено.');
-  }
-
-  function exportCSV() {
-    if (!state.journal.length) return toast('Журнал порожній.');
-    const headers = ['point', 'row', 'column', 'time', 'laser_x_px', 'laser_y_px', 'laser_x_norm', 'laser_y_norm', 'antenna_shape', 'confirmation'];
-    const esc = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
-    const csv = '\uFEFF' + [headers.join(','), ...state.journal.map(r => headers.map(h => esc(r[h])).join(','))].join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    const name = (els.jobName.value.trim() || 'tacheometer_points').replace(/[^\p{L}\p{N}_-]+/gu, '_');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${name}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  }
-
   function draw() {
     const w = els.overlay.width, h = els.overlay.height;
     ctx.clearRect(0, 0, w, h);
@@ -1242,27 +1137,6 @@
       drawEditableFigure();
     }
 
-    if (state.calibrating) {
-      ctx.save();
-      ctx.lineWidth = Math.max(2, w / 500);
-      ctx.strokeStyle = '#c7d2de';
-      ctx.fillStyle = '#c7d2de';
-      state.calibration.forEach((p, i) => {
-        circle(p.x, p.y, 8, true);
-        label(`${i + 1}`, p.x + 11, p.y - 10, '#fff');
-      });
-      if (state.calibration.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(state.calibration[0].x, state.calibration[0].y);
-        for (let i = 1; i < state.calibration.length; i++) ctx.lineTo(state.calibration[i].x, state.calibration[i].y);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    // Keep the last valid contour visible even if a tracking frame is bad.
-    // The grid may still contain the previous valid points, so the outline
-    // must not disappear just because the newest anchor update failed.
     const displayAnchors = state.calibrated && usableAnchors(state.anchors)
       ? state.anchors
       : state.calibrated && usableAnchors(state.calibration)
@@ -1304,8 +1178,6 @@
         }
         ctx.beginPath();
         ctx.arc(p.x, p.y, active ? baseR * 1.65 : baseR, 0, Math.PI * 2);
-        // Green means the point was measured. Other points stay yellow;
-        // the active point is indicated only by a white ring.
         ctx.fillStyle = done ? '#4ed28a' : '#f4c84a';
         ctx.fill();
         if (active) {
@@ -1430,7 +1302,6 @@
     if (!state.pointerEdit) return;
     ev?.preventDefault();
     state.pointerEdit = null;
-    updateCalibrationHint();
   }
 
   function drawGridLines(anchors = state.anchors) {
@@ -1463,8 +1334,6 @@
       const basis = ellipseBasis(anchors);
       if (!basis) return;
 
-      // Clip the line grid to the actual ellipse. This prevents the
-      // rectangular bounding box from being mistaken for the antenna area.
       ctx.save();
       drawEllipsePath(basis);
       ctx.clip();
@@ -1582,24 +1451,10 @@
   }
 
   function updateUI() {
-    const doneInGrid = state.grid.filter(p => state.done.has(p.id));
-    const pending = state.grid.filter(p => !state.done.has(p.id));
+    const doneCount = state.grid.reduce((count, point) => count + Number(state.done.has(point.id)), 0);
     const totalCount = state.grid.length || getExpectedGridCount();
     if (els.gridCount) els.gridCount.textContent = `${totalCount} точок`;
-    if (els.doneCount) els.doneCount.textContent = doneInGrid.length;
-    if (els.pendingCount) els.pendingCount.textContent = pending.length;
-    if (els.doneCountDuplicate) els.doneCountDuplicate.textContent = doneInGrid.length;
-    if (els.pendingCountDuplicate) els.pendingCountDuplicate.textContent = pending.length;
-    if (els.progressText) els.progressText.textContent = `${doneInGrid.length} / ${totalCount}`;
-    if (els.progressBar) els.progressBar.style.width = totalCount ? `${doneInGrid.length / totalCount * 100}%` : '0%';
-    if (els.doneList) {
-      els.doneList.innerHTML = doneInGrid.length ? doneInGrid.map(p => `<span class="point-chip done">${p.id}</span>`).join('') : 'Ще немає';
-      els.doneList.classList.toggle('empty', !doneInGrid.length);
-    }
-    if (els.pendingList) {
-      els.pendingList.innerHTML = pending.length ? pending.map(p => `<span class="point-chip">${p.id}</span>`).join('') : 'Усі точки знято';
-      els.pendingList.classList.toggle('empty', !pending.length);
-    }
+    if (els.progressText) els.progressText.textContent = `${doneCount} / ${totalCount}`;
     updateStatus();
     draw();
   }
@@ -1632,9 +1487,6 @@
             state.activeSeenAt = 0;
           }
         } else {
-          // The laser detector can miss a frame because of camera exposure or
-          // motion. Keep the last selected grid point visible briefly instead
-          // of making the UI flicker between a point and an empty state.
           state.laser = null;
           if (state.laserCandidate && ts - state.laserCandidateSeenAt > 300) {
             clearLaserCandidate();
@@ -1711,8 +1563,6 @@
     });
   }
   els.confirmPointBtn.addEventListener('click', confirmActive);
-  els.exportCsvBtn?.addEventListener('click', exportCSV);
-  els.clearJournalBtn?.addEventListener('click', clearJournal);
   els.showLinesInput?.addEventListener('change', () => { state.showLines = !!els.showLinesInput.checked; saveState(); draw(); });
   els.showLabelsInput?.addEventListener('change', () => { state.showLabels = !!els.showLabelsInput.checked; saveState(); draw(); });
   els.autoCaptureInput?.addEventListener('change', () => {
@@ -1727,7 +1577,6 @@
     rebuildGrid();
   });
 
-  setSecureBadge();
   els.showLinesInput.checked = !!state.showLines;
   els.showLabelsInput.checked = !!state.showLabels;
   if (els.autoCaptureInput) els.autoCaptureInput.checked = !!state.autoCapture;
