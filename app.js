@@ -10,6 +10,7 @@
     antennaWidthMm: $('antennaWidthMm'), antennaHeightMm: $('antennaHeightMm'), gridPitchInfo: $('gridPitchInfo'),
     addFigureBtn: $('addFigureBtn'), shapeMenu: $('shapeMenu'), rectShapeBtn: $('rectShapeBtn'), circleShapeBtn: $('circleShapeBtn'), ellipseShapeBtn: $('ellipseShapeBtn'), figureLockInput: $('figureLockInput'), fullscreenBtn: $('fullscreenBtn'), antennaColorInput: $('antennaColorInput'), resetCalibrationBtn: $('resetCalibrationBtn'),
     calibrationHelp: $('calibrationHelp'), laserMode: $('laserMode'), laserThreshold: $('laserThreshold'), thresholdValue: $('thresholdValue'),
+    captureRadiusInput: $('captureRadiusInput'), captureRadiusValue: $('captureRadiusValue'), showCaptureRadiusInput: $('showCaptureRadiusInput'),
     confirmPointBtn: $('confirmPointBtn'), gridCount: $('gridCount'), progressText: $('progressText'), progressBar: $('progressBar'),
     doneCount: $('doneCount'), pendingCount: $('pendingCount'), doneCountDuplicate: $('doneCountDuplicate'), pendingCountDuplicate: $('pendingCountDuplicate'),
     doneList: $('doneList'), pendingList: $('pendingList'), jobName: $('jobName'), exportCsvBtn: $('exportCsvBtn'), clearJournalBtn: $('clearJournalBtn'),
@@ -28,6 +29,8 @@
     showLabels: loadJSON('tn_show_labels_v2', false),
     autoCapture: loadJSON('tn_auto_capture_v1', true),
     clipGridToShape: loadJSON('tn_clip_grid_v1', false),
+    captureRadiusScale: loadJSON('tn_capture_radius_scale_v1', 2.5),
+    showCaptureRadius: loadJSON('tn_show_capture_radius_v1', false),
     mode: 'manual',
     calibration: [],
     calibrating: false,
@@ -60,6 +63,7 @@
     antennaColor: null,
     kalman: null
   };
+  let lastGridSizeKey = '';
 
   function loadJSON(key, fallback) {
     try {
@@ -225,8 +229,11 @@
       els.cameraFrame.style.aspectRatio = `${vw} / ${vh}`;
       els.overlay.width = vw;
       els.overlay.height = vh;
-      els.analysisCanvas.width = 360;
-      els.analysisCanvas.height = Math.max(180, Math.round(360 * vh / vw));
+      // Keep enough camera detail for a tiny laser spot; the old 360px frame
+      // could downsample a small spot out of existence before detection.
+      const analysisWidth = Math.min(vw, 960);
+      els.analysisCanvas.width = analysisWidth;
+      els.analysisCanvas.height = Math.max(180, Math.round(analysisWidth * vh / vw));
       els.cameraPlaceholder.classList.add('hidden');
       els.addFigureBtn.disabled = false;
       els.figureLockInput.disabled = !state.figure;
@@ -403,6 +410,24 @@
     };
   }
 
+  function handleGridSizeChange() {
+    const { rows, cols } = getGridSize();
+    const nextKey = `${rows}x${cols}`;
+    if (nextKey !== lastGridSizeKey) {
+      lastGridSizeKey = nextKey;
+      const hadRecords = state.done.size > 0 || state.journal.length > 0;
+      state.done.clear();
+      state.journal = [];
+      state.active = null;
+      state.activeSeenAt = 0;
+      clearLaserCandidate();
+      saveState();
+      if (hadRecords) toast('Розмір сітки змінено — попередні записи точок очищено.');
+    }
+    rebuildGrid();
+    updateGridPitchInfo();
+  }
+
   function updateGridPitchInfo() {
     const width = Number.parseFloat(els.antennaWidthMm.value);
     const height = Number.parseFloat(els.antennaHeightMm.value);
@@ -516,8 +541,8 @@
         }
       }
     }
-    const markerRadius = Math.max(4, Math.min(els.overlay.width, els.overlay.height) / 180) * 1.65;
-    for (const p of pts) p.captureRadius = markerRadius;
+    const markerRadius = Math.max(4, Math.min(els.overlay.width, els.overlay.height) / 180);
+    for (const p of pts) p.captureRadius = markerRadius * state.captureRadiusScale;
     return pts;
   }
 
@@ -941,34 +966,61 @@
     const threshold = +els.laserThreshold.value;
     const mode = els.laserMode.value;
     let best = null;
-    const step = 2;
-    for (let y = 1; y < img.height - 1; y += step) {
-      for (let x = 1; x < img.width - 1; x += step) {
-        const vpt = analysisToVideo({ x, y });
-        if (!insideAntenna(vpt)) continue;
-        const i = (y * img.width + x) * 4;
-        const r = img.data[i], g = img.data[i+1], b = img.data[i+2];
-        const brightScore = Math.max(r, g, b);
-        const redScore = r - (g + b) * 0.48;
-        const isBright = brightScore >= threshold && (r + g + b) / 3 >= threshold - 18;
-        const isRed = r >= Math.max(150, threshold - 20) && r > g * 1.35 && r > b * 1.25 && redScore > 60;
-        const ok = mode === 'bright' ? isBright : mode === 'red' ? isRed : (isRed || isBright);
-        if (!ok) continue;
-        const score = (isRed ? redScore + r : 0) + (isBright ? brightScore * 0.7 : 0);
-        if (!best || score > best.score) best = { x, y, score };
+    const scaleX = img.width / els.overlay.width;
+    const scaleY = img.height / els.overlay.height;
+    const neighborOffsets = [[-3,0],[3,0],[0,-3],[0,3]];
+
+    // Search only inside each grid node's configured capture circle, rather
+    // than letting a brighter reflection elsewhere on the antenna win.
+    for (const point of state.grid) {
+      const radius = point.captureRadius || Math.max(4, Math.min(els.overlay.width, els.overlay.height) / 180) * state.captureRadiusScale;
+      const centerX = point.x * scaleX, centerY = point.y * scaleY;
+      const radiusX = Math.max(1, radius * scaleX), radiusY = Math.max(1, radius * scaleY);
+      const minX = clamp(Math.floor(centerX - radiusX), 1, img.width - 2);
+      const maxX = clamp(Math.ceil(centerX + radiusX), minX + 1, img.width - 2);
+      const minY = clamp(Math.floor(centerY - radiusY), 1, img.height - 2);
+      const maxY = clamp(Math.ceil(centerY + radiusY), minY + 1, img.height - 2);
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const dx = (x / scaleX) - point.x, dy = (y / scaleY) - point.y;
+          if ((dx * dx + dy * dy) > radius * radius) continue;
+          const i = (y * img.width + x) * 4;
+          const r = img.data[i], g = img.data[i+1], b = img.data[i+2];
+          const brightScore = Math.max(r, g, b);
+          const redScore = r - (g + b) * 0.48;
+          const isBright = brightScore >= threshold && (r + g + b) / 3 >= threshold - 18;
+          const isRed = r >= Math.max(150, threshold - 20) && r > g * 1.35 && r > b * 1.25 && redScore > 60;
+          const ok = mode === 'bright' ? isBright : mode === 'red' ? isRed : (isRed || isBright);
+          if (!ok) continue;
+          let neighborLuma = 0;
+          for (const [ox, oy] of neighborOffsets) {
+            const nx = clamp(x + ox, 0, img.width - 1);
+            const ny = clamp(y + oy, 0, img.height - 1);
+            const ni = (ny * img.width + nx) * 4;
+            neighborLuma += (img.data[ni] + img.data[ni+1] + img.data[ni+2]) / 3;
+          }
+          const localContrast = (r + g + b) / 3 - neighborLuma / neighborOffsets.length;
+          // Contrast ranks a compact spot higher but doesn't reject a valid
+          // bright spot simply because its camera image is slightly blurred.
+          const score = (isRed ? redScore + r : 0) + (isBright ? brightScore * 0.7 + Math.max(0, localContrast) * 2 : 0);
+          if (!best || score > best.score) best = { x, y, score };
+        }
       }
     }
     if (!best) return null;
 
     let sx = 0, sy = 0, sw = 0;
-    const rad = 6;
+    const rad = 5;
     for (let y = Math.max(0, best.y-rad); y <= Math.min(img.height-1, best.y+rad); y++) {
       for (let x = Math.max(0, best.x-rad); x <= Math.min(img.width-1, best.x+rad); x++) {
         const i = (y * img.width + x) * 4;
         const r = img.data[i], g = img.data[i+1], b = img.data[i+2];
         const lum = Math.max(r,g,b);
         const red = r > g*1.3 && r > b*1.2 ? r : 0;
-        const w = Math.max(0, lum - threshold + 25) + red;
+        const matchesMode = mode === 'bright'
+          ? lum >= threshold && (r + g + b) / 3 >= threshold - 18
+          : mode === 'red' ? red > 0 : (lum >= threshold || red > 0);
+        const w = matchesMode ? Math.max(1, lum - threshold + 25) + red : 0;
         if (w > 0) { sx += x*w; sy += y*w; sw += w; }
       }
     }
@@ -1241,6 +1293,15 @@
       for (const p of displayGrid) {
         const done = state.done.has(p.id);
         const active = state.active?.id === p.id;
+        if (state.showCaptureRadius) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.captureRadius || baseR * state.captureRadiusScale, 0, Math.PI * 2);
+          ctx.lineWidth = Math.max(1, baseR * .2);
+          ctx.setLineDash([Math.max(3, baseR * .7), Math.max(2, baseR * .45)]);
+          ctx.strokeStyle = active ? 'rgba(105,183,255,.95)' : 'rgba(255,255,255,.58)';
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
         ctx.beginPath();
         ctx.arc(p.x, p.y, active ? baseR * 1.65 : baseR, 0, Math.PI * 2);
         // Green means the point was measured. Other points stay yellow;
@@ -1508,31 +1569,9 @@
     els.currentPoint.textContent = active?.id || '—';
     els.dockPoint.textContent = active?.id || '—';
     if (els.laserStatus) {
-      els.laserStatus.textContent = state.laser ? 'Лазер знайдено' : 'Лазер не знайдено';
+      const readyToDetect = state.calibrated && state.grid.length > 0;
+      els.laserStatus.textContent = !readyToDetect ? 'Зафіксуй фігуру' : state.laser ? 'Лазер знайдено' : 'Лазер не знайдено';
       els.laserStatus.className = 'pill ' + (state.laser ? 'success' : 'warn');
-    }
-    if (els.trackingStatus) {
-      els.trackingStatus.textContent = state.calibrated
-        ? `Стеження ${Math.round(state.trackingConfidence * 100)}%`
-        : 'Сітка не прив’язана';
-      els.trackingStatus.className = 'pill ' + (state.calibrated && state.trackingConfidence > .35 ? 'success' : '');
-    }
-    if (els.trackingMethod) {
-      els.trackingMethod.textContent = state.calibrated && state.trackingConfidence > .35
-        ? 'Контур + сітка стежать разом'
-        : state.calibrated
-          ? 'Очікування стабільного контуру'
-          : 'Фігура не зафіксована';
-    }
-    if (els.antennaColorStatus) {
-      els.antennaColorStatus.textContent = state.antennaColor
-        ? `Колір антени: ${state.antennaColor.hex}`
-        : 'Колір антени: вимкнено';
-    }
-    if (els.trackingHud) {
-      els.trackingHud.classList.toggle('ok', state.calibrated && state.trackingConfidence > .35);
-      els.trackingHud.classList.toggle('warn', state.calibrated && state.trackingConfidence <= .35);
-      if (state.antennaColor) els.trackingHud.style.setProperty('--antenna-color', state.antennaColor.hex);
     }
     els.confirmPointBtn.disabled = !active || !state.laser || state.done.has(active.id);
     const waiting = state.autoCapture && state.laserCandidate?.id === active?.id;
@@ -1640,14 +1679,37 @@
       updateStatus();
     }
   });
-  els.rowsInput.addEventListener('change', () => { clearLaserCandidate(); rebuildGrid(); updateGridPitchInfo(); });
-  els.colsInput.addEventListener('change', () => { clearLaserCandidate(); rebuildGrid(); updateGridPitchInfo(); });
+  lastGridSizeKey = `${getGridSize().rows}x${getGridSize().cols}`;
+  els.rowsInput.addEventListener('change', handleGridSizeChange);
+  els.colsInput.addEventListener('change', handleGridSizeChange);
   for (const input of [els.antennaWidthMm, els.antennaHeightMm]) {
     const key = input === els.antennaWidthMm ? 'tn_antenna_width_mm' : 'tn_antenna_height_mm';
     input.value = localStorage.getItem(key) || '';
     input.addEventListener('input', () => { saveState(); updateGridPitchInfo(); });
   }
   els.laserThreshold.addEventListener('input', () => els.thresholdValue.textContent = els.laserThreshold.value);
+  if (els.captureRadiusInput) {
+    els.captureRadiusInput.value = state.captureRadiusScale;
+    els.captureRadiusValue.textContent = `${Number(state.captureRadiusScale).toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}×`;
+    els.captureRadiusInput.addEventListener('input', () => {
+      state.captureRadiusScale = Number(els.captureRadiusInput.value);
+      state.grid.forEach(point => {
+        const markerRadius = Math.max(4, Math.min(els.overlay.width || 720, els.overlay.height || 480) / 180);
+        point.captureRadius = markerRadius * state.captureRadiusScale;
+      });
+      localStorage.setItem('tn_capture_radius_scale_v1', JSON.stringify(state.captureRadiusScale));
+      els.captureRadiusValue.textContent = `${state.captureRadiusScale.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}×`;
+      draw();
+    });
+  }
+  if (els.showCaptureRadiusInput) {
+    els.showCaptureRadiusInput.checked = state.showCaptureRadius;
+    els.showCaptureRadiusInput.addEventListener('change', () => {
+      state.showCaptureRadius = els.showCaptureRadiusInput.checked;
+      localStorage.setItem('tn_show_capture_radius_v1', JSON.stringify(state.showCaptureRadius));
+      draw();
+    });
+  }
   els.confirmPointBtn.addEventListener('click', confirmActive);
   els.exportCsvBtn?.addEventListener('click', exportCSV);
   els.clearJournalBtn?.addEventListener('click', clearJournal);

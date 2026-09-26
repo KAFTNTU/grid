@@ -36,11 +36,6 @@
           <strong>Камера вимкнена</strong>
           <span>Натисніть «Увімкнути камеру»</span>
         </div>
-        <div class="tracking-hud" aria-live="polite">
-          <span id="trackingStatus" class="tracking-hud-main">Сітка не прив’язана</span>
-          <span id="trackingMethod">Трекер: очікування</span>
-          <span id="antennaColorStatus">Колір антени: вимкнено</span>
-        </div>
         <div id="calibrationHint" class="calibration-hint hidden"></div>
         <p id="calibrationHelp" class="hidden"></p>
       </div>
@@ -122,6 +117,13 @@
         <input id="laserThreshold" type="range" min="120" max="250" value="205" aria-label="Чутливість лазера" />
         <output id="thresholdValue">205</output>
       </div>
+      <span id="laserStatus" class="laser-detect-status" role="status">Лазер не знайдено</span>
+      <label class="capture-radius-control">
+        <span>Зона захоплення точки <output id="captureRadiusValue">2.5×</output></span>
+        <input id="captureRadiusInput" type="range" min="0.75" max="5" step="0.25" value="2.5" aria-label="Радіус захоплення лазера навколо точки" />
+        <small>Зона діє завжди; галочка лише показує кільця. Радіус — від розміру маркера.</small>
+        <span class="capture-radius-toggle"><input id="showCaptureRadiusInput" type="checkbox" /><span>Показати зону захоплення на сітці</span></span>
+      </label>
     </section>
 
   </main>

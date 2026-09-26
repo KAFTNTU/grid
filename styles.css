@@ -115,11 +115,17 @@ input[type=range]{padding:0}
 .toggle-card{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;margin:0;background:linear-gradient(180deg,#191d24,#12151a);border:1px solid #2c333c;border-radius:16px;font-size:13px}
 .toggle-card input{width:18px;height:18px;margin:0;accent-color:#d2d8e1}
 .grid-size-settings{margin:0 0 10px}
-.laser-panel{display:flex;align-items:center;gap:10px;padding:10px}
+.laser-panel{display:grid;grid-template-columns:150px minmax(100px,1fr) auto;align-items:center;gap:10px;padding:10px}
 .laser-panel select{width:150px;padding:9px 10px}
 .laser-slider{display:flex;align-items:center;gap:8px;flex:1}
 .laser-slider input{flex:1}
 .laser-slider output{min-width:30px;color:var(--muted);font-size:12px;text-align:right}
+.laser-detect-status{font-size:12px;color:var(--muted);white-space:nowrap}
+.capture-radius-control{grid-column:1/-1;width:100%;margin:0;display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px;font-size:12px}
+.capture-radius-control>input[type=range]{grid-column:1/-1}
+.capture-radius-control small{grid-column:1/-1;color:var(--muted)}
+.capture-radius-toggle{grid-column:1/-1;display:flex;align-items:center;gap:8px;color:#d7dde5}
+.capture-radius-toggle input{width:16px;height:16px;margin:0;accent-color:#d2d8e1}
 .progress{height:10px;background:#0f1216;border-radius:999px;overflow:hidden;border:1px solid #262c35}
 .progress>div{height:100%;width:0;background:linear-gradient(90deg,#3dbc77,#68e0a1);transition:width .2s}
 .lists{display:grid;gap:8px;margin-top:12px}
@@ -145,6 +151,9 @@ summary{cursor:pointer;color:#dfe5ec;font-weight:600}
   .status-compact{justify-content:flex-start}
   .camera-tools{top:7px;left:7px}
   .tracking-hud{top:7px;right:7px;max-width:48vw;font-size:10px;padding:6px 7px}
+  .laser-panel{grid-template-columns:minmax(110px,1fr) auto;}
+  .laser-slider{grid-column:1/-1;grid-row:2}
+  .laser-detect-status{grid-column:1/-1;grid-row:3}
 }
 @media (min-width:860px){
   .app-grid{grid-template-columns:1.18fr .82fr}
